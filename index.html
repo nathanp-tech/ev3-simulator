@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EV3 Simulator</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand"><span class="logo">EV3</span><span>Simulator</span></div>
+    <div class="student-chip" id="studentChip" title="Student">👤 <span id="chipName"></span></div>
+    <button class="mode-pill" id="btnSwitchMode" title="Switch mode"></button>
+    <div class="spacer"></div>
+    <span class="sync" id="syncStatus" title="Connection to the teacher's dashboard"></span>
+    <button id="btnSaveWork" class="save-work" title="Download your work to this computer">💾 Save my work</button>
+    <button id="btnHelp" class="round" title="Help">?</button>
+    <button id="btnExit" title="Finish or change student">Exit</button>
+  </header>
+  <div id="saveReminder" class="save-reminder" hidden>💾 Remember to save your work on this computer. <button id="btnReminderSave">Save now</button> <button id="btnReminderLater" class="link">later</button></div>
+
+  <main>
+    <section id="editor">
+      <div id="blocklyDiv"></div>
+      <button id="btnPortView" class="pv-open" title="Show the Port View: live values of every motor and sensor">
+        <svg viewBox="0 0 34 40" width="26" height="30"><rect x="6" y="2" width="22" height="36" rx="4" fill="none" stroke="#3a3f45" stroke-width="2.4"/><rect x="10" y="6" width="14" height="10" rx="1.5" fill="#3a3f45"/><rect x="13" y="22" width="8" height="8" rx="2" fill="#3a3f45"/></svg>
+        <span>Port View</span>
+      </button>
+      <div id="zoomBar" class="zoom-bar">
+        <button data-z="out" title="Zoom out"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="M6.5 10h7M15.5 15.5L21 21"/></svg></button>
+        <button data-z="in" title="Zoom in"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="M6.5 10h7M10 6.5v7M15.5 15.5L21 21"/></svg></button>
+        <button data-z="reset" title="Reset zoom"><svg viewBox="0 0 24 24"><path d="M4 4l5 5M9 5v4H5M20 4l-5 5M15 5v4h4M4 20l5-5M9 19v-4H5M20 20l-5-5M15 19v-4h4"/><circle cx="12" cy="12" r="0.8"/></svg></button>
+        <span class="sep"></span>
+        <button data-z="undo" title="Undo"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+        <button data-z="redo" title="Redo"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+      </div>
+    </section>
+
+    <aside id="side">
+      <div class="toolbar">
+        <button id="btnRun" class="run" title="Run the program">▶ Run</button>
+        <button id="btnStop" class="stop" title="Stop the program">■ Stop</button>
+        <button id="btnReset" title="Put the robot back at the start">↺ Reset</button>
+        <select id="speedSel" title="Simulation speed">
+          <option value="1">×1</option><option value="2">×2</option><option value="4">×4</option><option value="max">Turbo</option>
+        </select>
+        <label class="chk"><input type="checkbox" id="chkTrail" checked> Trail</label>
+        <button id="btnPortView2" title="Show the Port View">🔌 Port View</button>
+        <button id="btn3d" title="See the FLL table in 3D" hidden>🧊 3D</button>
+        <button id="btnBig" title="Bigger simulator">⛶</button>
+        <span id="simClock" class="clock">0.0 s</span>
+      </div>
+
+      <div id="simWrap"><canvas id="simCanvas"></canvas><div id="simError" class="sim-error" hidden></div></div>
+
+      <div id="sandboxBar" class="bar">
+        <label>Mat <select id="matSel"></select></label>
+        <button id="btnAddBox" title="Add a box you can drag">+ Box</button>
+        <button id="btnBeacon" title="Add or remove the infrared beacon">+ Beacon</button>
+        <button id="btnClearTrail">Clear trail</button>
+        <span class="hint">Drag the robot, boxes and beacon · mouse wheel over the robot to turn it</span>
+      </div>
+
+      <div id="challengeBox" class="card" hidden>
+        <div id="stepper" class="stepper"></div>
+        <div class="row">
+          <h2 id="challengeTitle" class="ch-title"></h2>
+          <span id="challengeMeta" class="meta"></span>
+        </div>
+        <div id="challengeDesc" class="desc"></div>
+        <div id="hintBox" class="hints"></div>
+        <div class="row">
+          <button id="btnHint" title="Show a hint">💡 Hint</button>
+          <button id="btnVariant" title="Try the challenge with another random layout">🎲 New layout</button>
+          <span class="spacer"></span>
+          <button id="btnEvaluate" class="primary">✅ Check my solution</button>
+        </div>
+        <div id="practiceResult"></div>
+        <div id="validateBox"></div>
+      </div>
+
+      <div id="fllBox" class="card fll-box" hidden>
+        <div class="fll-head">
+          <div><b>🏆 FIRST LEGO League · BIOGLOW</b><div class="muted fll-sub">Robot game practice, 2026-27 season (unofficial simulator)</div></div>
+          <div class="fll-clock" id="fllClock">2:30</div>
+          <div class="fll-score"><span id="fllScore">0</span><small>points</small></div>
+        </div>
+        <div class="row">
+          <span class="muted">Precision tokens</span> <span id="fllTokens" class="tokens"></span>
+          <span class="spacer"></span>
+          <label class="chk"><input type="checkbox" id="fllZones"> Show action zones</label>
+        </div>
+        <div class="row fll-setup" id="fllSetup">
+          <label>Launch area <select id="fllSide"><option value="left">Left (red)</option><option value="right">Right (blue)</option></select></label>
+          <label>Mine dock <select data-dock="mine"></select></label>
+          <label>City dock <select data-dock="city"></select></label>
+          <label>Farm dock <select data-dock="farm"></select></label>
+        </div>
+        <div class="row">
+          <button id="fllNew">🔁 New match</button>
+          <button id="fllRescue" title="Interrupt the robot and bring it back home: you lose one precision token">🛟 Rescue robot (−1 token)</button>
+          <span class="spacer"></span>
+          <button id="fllEnd" class="primary">🏁 End match &amp; score</button>
+        </div>
+        <div id="fllInfo" class="fll-info"></div>
+        <div id="fllSheet" class="fll-sheet"></div>
+      </div>
+
+      <div class="lower">
+        <div id="brick">
+          <div class="lcd"><canvas id="lcdCanvas" width="178" height="128"></canvas></div>
+          <div class="brick-buttons">
+            <button class="bb back" data-btn="back" title="Back (stops the program)">⟲</button>
+            <div class="pad" id="pad">
+              <button class="bb up" data-btn="up">▲</button>
+              <button class="bb left" data-btn="left">◀</button>
+              <button class="bb center" data-btn="center"></button>
+              <button class="bb right" data-btn="right">▶</button>
+              <button class="bb down" data-btn="down">▼</button>
+            </div>
+          </div>
+        </div>
+        <div class="panels">
+          <div class="panel">
+            <h3>Variables</h3>
+            <div id="varList" class="vars"><span class="muted">No variables</span></div>
+          </div>
+          <div class="panel">
+            <h3>Console <button id="btnClearLog" class="mini">clear</button></h3>
+            <div id="log" class="log"></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="pvPanel" class="pv-panel" hidden>
+    <div class="pv-top">
+      <svg viewBox="0 0 34 40" width="30" height="34"><rect x="6" y="2" width="22" height="36" rx="4" fill="#e9ebee" stroke="#3a3f45" stroke-width="2"/><rect x="10" y="6" width="14" height="10" rx="1.5" fill="#3a3f45"/><rect x="13" y="22" width="8" height="8" rx="2" fill="#3a3f45"/></svg>
+      <div><div class="pv-name">EV3</div><div class="muted pv-sub">Simulated robot</div></div>
+      <div class="pv-tabs"><button data-pvtab="diagram" class="active">Port View</button><button data-pvtab="setup">Robot setup</button></div>
+      <button class="pv-close" id="pvClose" aria-label="Close">✕</button>
+    </div>
+    <div id="pvDiagramTab"><div id="pvDiagram" class="pv-diagram"></div></div>
+    <div id="pvSetupTab" hidden>
+      <div class="pv-head">
+        <select id="presetSel" title="Robot configuration presets"></select>
+        <span id="pvWarn" class="pv-warn"></span>
+      </div>
+      <div id="pvGrid" class="pv-grid"></div>
+    </div>
+  </div>
+
+  <div id="welcome" class="welcome">
+    <div class="welcome-card">
+      <div class="brand big"><span class="logo">EV3</span><span>Simulator</span></div>
+      <h1>Hello! 👋</h1>
+      <div class="wfields">
+        <label>Your first name <input id="wName" autocomplete="off" placeholder="e.g. Lea"></label>
+        <input id="wClass" type="hidden" value="">
+      </div>
+      <div id="wRoster" class="roster" hidden></div>
+      <p class="wq">What do you want to do?</p>
+      <div class="choices">
+        <button class="choice guided" data-mode="guided"><span class="cicon">🧭</span><b>Guided challenges</b><span>Step-by-step challenges. Pass one and the next one unlocks.</span></button>
+        <button class="choice free" data-mode="free"><span class="cicon">🛠️</span><b>Free programming</b><span>Build and test any program you like on different mats.</span></button>
+        <button class="choice fll" data-mode="fll"><span class="cicon">🏆</span><b>FIRST LEGO League</b><span>Practice the BIOGLOW robot game (2026-27): 15 missions, 2:30 matches, official scoring.</span></button>
+      </div>
+      <p class="muted wsave">☁️ Your work is saved automatically. Your first name is your key: next time, type the same first name to continue.</p>
+      <p id="wError" class="werr"></p>
+      <div class="welcome-alt">
+        <button id="wContinue" hidden></button>
+        <button id="wOpen">📂 Continue from my saved file</button>
+        <input type="file" id="wFile" accept=".json" hidden>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box">
+      <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="lib/blockly/blockly_compressed.js"></script>
+  <script src="lib/blockly/blocks_compressed.js"></script>
+  <script src="lib/blockly/javascript_compressed.js"></script>
+  <script src="lib/blockly/msg/en.js"></script>
+  <script src="lib/continuous-toolbox/index.js"></script>
+  <script src="js/sim.js"></script>
+  <script src="js/blocks.js"></script>
+  <script src="js/generator.js"></script>
+  <script src="js/brick.js"></script>
+  <script src="js/runtime.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/evaluator.js"></script>
+  <script src="js/fll.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/progress.js"></script>
+  <script src="js/portview.js"></script>
+  <script src="js/app.js"></script>
+  <script type="importmap">{ "imports": { "three": "./lib/three/three.module.min.js" } }</script>
+  <script type="module" src="js/fll3d.js"></script>
+</body>
+</html>

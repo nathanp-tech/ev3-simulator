@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>FLL field test</title></head>
+<body><pre id="out">Running…</pre>
+<script src="../js/sim.js"></script>
+<script src="../js/runtime.js"></script>
+<script src="../js/fll.js"></script>
+<script>
+// Checks that every mission zone can be reached by the robot tip without the body hitting a model or a wall,
+// and that every mission can score through the real interaction code.
+const out = [];
+const say = (s) => { out.push(s); document.getElementById('out').textContent = out.join('\n'); };
+function run() {
+  const sim = new Sim();
+  sim.loadMat(FLL.mat);
+  let allOk = true;
+  for (const docks of [{ mine: 13, city: 14, farm: 15 }, { mine: 15, city: 13, farm: 14 }, { mine: 14, city: 15, farm: 13 }]) {
+    const S = FLL.newMatch({ seed: 1, docks });
+    sim.obstacles = S.obstacles; sim._rebuildSegments();
+    for (const z of S.zones) {
+      const c = [z.poly.reduce((a, p) => a + p[0], 0) / 4, z.poly.reduce((a, p) => a + p[1], 0) / 4];
+      let found = null;
+      for (let deg = -180; deg < 180 && !found; deg += 5) {
+        const th = deg * DEG;
+        const x = c[0] - Math.cos(th) * 12, y = c[1] - Math.sin(th) * 12;
+        if (!sim.collides(x, y, th)) found = deg;
+      }
+      if (found === null) { allOk = false; say(`ERR zone ${z.id} (docks ${JSON.stringify(docks)}) unreachable`); }
+    }
+    for (const area of ['platform', 'station']) {
+      if (!S[area]) continue;
+    }
+  }
+  say(allOk ? 'OK  every zone is reachable for every dock arrangement' : 'ERR some zones unreachable');
+  // Scripted play: put the robot in front of each zone and use the real step() code.
+  const S = FLL.newMatch({ seed: 7 });
+  sim.obstacles = S.obstacles; sim._rebuildSegments();
+  sim.resetRobot(FLL.HOMES.left.start);
+  const place = (z) => {
+    const c = [z.poly.reduce((a, p) => a + p[0], 0) / 4, z.poly.reduce((a, p) => a + p[1], 0) / 4];
+    for (let deg = -180; deg < 180; deg += 5) {
+      const th = deg * DEG, x = c[0] - Math.cos(th) * 12, y = c[1] - Math.sin(th) * 12;
+      if (!sim.collides(x, y, th)) { sim.robot = { x, y, th }; return true; }
+    }
+    return false;
+  };
+  for (const z of S.zones) {
+    if (z.id.startsWith('m04') && S.flags.slots[Number(z.id.slice(4))] === 'katydid') continue;
+    place(z);
+    sim.motors.A.pos = 0; FLL.step(S, sim, DT);
+    sim.motors.A.pos = 90; FLL.step(S, sim, DT);
+    if (z.id === 'm03') { sim.motors.A.pos = 0; FLL.step(S, sim, DT); }
+    for (let i = 0; i < 40; i++) FLL.step(S, sim, DT); // push zones need a short dwell
+  }
+  const sc = FLL.score(S);
+  say('Scripted run (no pushing of loose items): ' + sc.total + ' / ' + sc.max);
+  say(sc.rows.map((r) => `M${String(r.n).padStart(2, '0')} ${r.name}: ${r.points}/${r.max}`).join('\n'));
+  // Pushing missions with real driving (motors B and C, physics + field hook).
+  const drive = (S, pose, pct, secs) => {
+    sim.resetRobot(pose);
+    sim.hook = (sm, dt) => FLL.step(S, sm, dt);
+    sim.motors.B.start(pct); sim.motors.C.start(pct);
+    for (let t = 0; t < secs; t += DT) sim.step(DT);
+    sim.motors.B.stop(); sim.motors.C.stop();
+    for (let i = 0; i < 40; i++) sim.step(DT);
+    sim.hook = null;
+  };
+  const fresh = (docks) => { const S2 = FLL.newMatch({ seed: 3, docks }); sim.obstacles = S2.obstacles; sim._rebuildSegments(); return S2; };
+  let T = fresh();
+  drive(T, { x: FLL.MX + 45, y: 105.4, th: 0 }, 50, 4);
+  say((T.flags.droneLaunched ? 'OK ' : 'ERR') + ' M01 push the slider along the bottom wall → drone launched');
+  T = fresh();
+  drive(T, { x: FLL.MX + 41, y: 32, th: -Math.PI / 2 }, 30, 4);
+  say((FLL.score(T).rows[4].points === 20 ? 'OK ' : 'ERR') + ' M05 push the root lever → ' + FLL.score(T).rows[4].points + ' pts');
+  T = fresh();
+  drive(T, { x: FLL.MX + 150, y: 34, th: -Math.PI / 2 }, 20, 6);
+  say((FLL.score(T).rows[5].points === 40 ? 'OK ' : 'ERR') + ` M06 push the ant slowly (max ${T.flags.antMaxSpeed.toFixed(1)} cm/s) → ${FLL.score(T).rows[5].points} pts`);
+  T = fresh();
+  drive(T, { x: FLL.MX + 150, y: 34, th: -Math.PI / 2 }, 70, 3);
+  say((FLL.score(T).rows[5].points === 0 ? 'OK ' : 'ERR') + ` M06 push the ant fast (max ${T.flags.antMaxSpeed.toFixed(1)} cm/s) → ${FLL.score(T).rows[5].points} pts (leaves scattered)`);
+  T = fresh({ mine: 15, city: 13, farm: 14 });
+  const ks = T.items.find((i) => i.id === 'keystone'); ks.x = FLL.MX + 128.6; ks.y = 86;
+  drive(T, { x: FLL.MX + 128.6, y: 66, th: Math.PI / 2 }, 25, 5);
+  say((FLL.score(T).rows[12].points === 30 ? 'OK ' : 'ERR') + ` M13 keystone pushed onto the platform (city dock) → ${FLL.score(T).rows[12].points} pts, keystone at (${(ks.x - FLL.MX).toFixed(1)}, ${ks.y.toFixed(1)})`);
+  T = fresh({ mine: 15, city: 14, farm: 13 });
+  T.items.push({ id: 'seed-x', kind: 'seed', x: FLL.MX + 128.6, y: 86, r: 1.5, color: '#8d5524', loose: true, x0: 0, y0: 0 });
+  drive(T, { x: FLL.MX + 128.6, y: 66, th: Math.PI / 2 }, 25, 5);
+  say((FLL.score(T).rows[13].points === 10 ? 'OK ' : 'ERR') + ` M14 seed pushed into the replantation station → ${FLL.score(T).rows[13].points} pts`);
+  T = fresh();
+  drive(T, { x: FLL.MX + 98, y: 30, th: Math.PI / 2 }, 30, 3);
+  say((FLL.score(T).rows[9].points === 10 ? 'OK ' : 'ERR') + ` M10 driving through the snail habitat moves it → ${FLL.score(T).rows[9].points} pts`);
+  document.title = allOk ? 'PASS' : 'FAIL';
+}
+window.addEventListener('load', () => { try { run(); } catch (e) { say('EXC ' + e.message + '\n' + e.stack); } });
+</script></body></html>

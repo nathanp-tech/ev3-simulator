@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "regions": [
+    "fra1"
+  ],
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 15
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:route*",
+      "destination": "/api/index?route=:route*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)\\.(html|js|css)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
+  ]
+}
