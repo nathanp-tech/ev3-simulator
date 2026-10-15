@@ -72,7 +72,8 @@ class RedisHandler(http.server.BaseHTTPRequestHandler):
 
 
 # ---------- the Vercel API ----------
-os.environ.update({'KV_REST_API_URL': f'http://127.0.0.1:{REDIS_PORT}', 'KV_REST_API_TOKEN': 'test-token', 'TEACHER_CODE': '123456'})
+os.environ.update({'KV_REST_API_URL': f'http://127.0.0.1:{REDIS_PORT}', 'KV_REST_API_TOKEN': 'test-token'})
+os.environ.setdefault('TEACHER_CODE', '123456')
 spec = importlib.util.spec_from_file_location('vercel_api', os.path.join(ROOT, 'api', 'index.py'))
 api = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(api)

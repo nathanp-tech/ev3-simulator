@@ -720,6 +720,27 @@ function liveState(status) {
 }
 
 // ---------- Modal ----------
+// Teacher login from the welcome page: the password is checked by the server, then the dashboard opens.
+function teacherLogin() {
+  openModal(`<h2>👩‍🏫 Teacher dashboard</h2>
+    <p><label>Password <input id="tPass" type="password" autocomplete="current-password" style="font-size:16px;padding:8px 10px;margin-left:6px"></label>
+    <button class="primary" id="tGo">Open</button></p><p id="tErr" class="werr"></p>`);
+  const go = async () => {
+    const code = $('tPass').value.trim();
+    if (!code) return;
+    try {
+      const r = await fetch('api/info?code=' + encodeURIComponent(code), { cache: 'no-store' });
+      const info = await r.json();
+      if (!info.passwordOk) { $('tErr').textContent = 'Wrong password.'; $('tPass').select(); return; }
+      localStorage.setItem('ev3sim.teacherCode', code);
+      location.href = 'teacher.html';
+    } catch (e) { $('tErr').textContent = 'The class server cannot be reached.'; }
+  };
+  $('tGo').onclick = go;
+  $('tPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  setTimeout(() => $('tPass').focus(), 50);
+}
+
 function openModal(html) { $('modalBody').innerHTML = html; $('modal').hidden = false; }
 function closeModal() { $('modal').hidden = true; }
 
@@ -1147,6 +1168,7 @@ function init() {
   Sync.start(() => liveState());
 
   setupFll();
+  $('wTeacher').onclick = teacherLogin;
   $('btnBig').onclick = () => {
     document.body.classList.toggle('bigfield');
     $('btnBig').title = document.body.classList.contains('bigfield') ? 'Back to normal size (more room for your blocks)' : 'Bigger simulator';

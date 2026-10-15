@@ -6,7 +6,7 @@ Same endpoints as server.py, but the data is kept in an Upstash Redis database i
 Environment variables (Vercel project settings):
   KV_REST_API_URL / KV_REST_API_TOKEN   added automatically when the Upstash Redis database is connected
                                         (UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN also work)
-  TEACHER_CODE                          code asked by the teacher dashboard (always needed online)
+  TEACHER_CODE                          teacher password (optional: prof2026 when not set)
 
 Redis keys (prefix ev3:):
   snap    hash  student id -> progress snapshot without programs (live dashboard)
@@ -107,6 +107,10 @@ def archive(reason):
     return 'database archive ' + name
 
 
+def teacher_code():
+    return os.environ.get('TEACHER_CODE', '').strip() or 'prof2026'
+
+
 def remove_cmds(sid):
     return [['HDEL', P + 'snap', sid], ['DEL', P + 'work:' + sid], set_status(sid, {'deleted': True})]
 
@@ -139,7 +143,7 @@ class handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
 
     def _teacher(self, params=None):
-        expected = os.environ.get('TEACHER_CODE', '').strip()
+        expected = teacher_code()
         code = (self.headers.get('X-Teacher-Code') or (params or {}).get('code', '')).strip()
         return bool(expected) and code == expected
 
@@ -162,7 +166,7 @@ class handler(BaseHTTPRequestHandler):
         if path == '/api/info':
             host = self.headers.get('X-Forwarded-Host') or self.headers.get('Host') or ''
             return self._json({'ips': [], 'host': None, 'port': None, 'hosted': True, 'publicUrl': f'https://{host}/' if host else None,
-                               'needsCode': True, 'teacher': self._teacher(params), 'codeConfigured': bool(os.environ.get('TEACHER_CODE', '').strip())})
+                               'needsCode': True, 'teacher': self._teacher(params), 'passwordOk': self._teacher(params), 'codeConfigured': True})
         if path == '/api/progress':
             if not self._teacher(params):
                 return self._json({'error': 'teacher code required'}, 403)

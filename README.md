@@ -6,7 +6,7 @@ A web app to program a LEGO® MINDSTORMS® EV3 robot with blocks, in the style o
 
 1. **Teacher:** on your computer, double-click `start.command`. A window opens and shows:
    - the **public link** for students, e.g. `https://xxxx.trycloudflare.com/`. It works from any network, through a free Cloudflare tunnel with no account. The first launch downloads the tunnel tool into `tools/`.
-   - the **teacher code**, only needed to open the dashboard from another computer.
+   - the **teacher password** (`prof2026`, or the `TEACHER_CODE` environment variable), only needed to open the dashboard from another computer.
    The teacher dashboard opens in your browser with the link and a QR code. **📺 Show to the class** displays them in large size for the projector.
    - Keep the window open and the computer awake during the lesson.
    - The link changes at each launch: always take it from the dashboard.
@@ -23,7 +23,7 @@ A web app to program a LEGO® MINDSTORMS® EV3 robot with blocks, in the style o
 
 ## Teacher dashboard (`teacher.html`)
 
-- **Live class** (needs the class server), refreshed every 3 seconds. No code on the teacher's computer; elsewhere it asks for the teacher code shown in the server window. For each student it shows:
+- **Live class** (needs the class server), refreshed every 3 seconds. No password on the teacher's computer; elsewhere it asks for the teacher password. **From the welcome page:** the discreet **👩‍🏫 Teacher** button (bottom right) asks for the password and opens the dashboard; **Log out** in the dashboard forgets it on that computer. For each student it shows:
   - progress through the challenges and the current challenge;
   - time spent and number of runs;
   - best check score;
@@ -82,7 +82,7 @@ The app can also run on Vercel, with a fixed address (no computer to keep on, no
 
 - **What is deployed:** the static app and `api/index.py`, the same API as `server.py` but storing the data in an **Upstash Redis** database (Vercel has no permanent disk). `data/`, `tools/`, `server.py` and the tests are not deployed (`.vercelignore`), and `data/` and `tools/` never go to GitHub (`.gitignore`).
 - **Settings in Vercel** (Project → Settings → Environment Variables):
-  - `TEACHER_CODE`: the code asked by the teacher dashboard (always asked online).
+  - `TEACHER_CODE` (optional): the teacher password. Without it, the password is `prof2026`. Always asked online.
   - `KV_REST_API_URL` / `KV_REST_API_TOKEN`: added automatically when the Upstash Redis database is connected (Storage tab).
 - **Region:** functions in Frankfurt (`fra1`, `vercel.json`); choose Frankfurt (eu-central-1) for the database too.
 - **Online, browsers talk to the server less often** (save every 8 s when something changed, otherwise every 30 s; teacher checks every 10 s) to stay within the free quotas.

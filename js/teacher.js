@@ -699,6 +699,7 @@ function init() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
   renderFiles();
   showServerInfo();
+  $('btnLogout').onclick = () => { localStorage.removeItem('ev3sim.teacherCode'); location.href = 'index.html'; };
   $('btnCode').onclick = () => { T.code = $('tcode').value.trim(); localStorage.setItem('ev3sim.teacherCode', T.code); startLive(); };
   $('tcode').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnCode').click(); });
   setupManage();

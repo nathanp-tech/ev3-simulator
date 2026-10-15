@@ -8,7 +8,7 @@ With --public, it also opens a free Cloudflare tunnel: students can then open th
 from any network with a public https link (shown here and in the teacher dashboard).
 Student work is kept in data/ on this computer.
 """
-import atexit, http.server, json, os, platform, random, re, shutil, signal, socket, socketserver, stat, subprocess
+import atexit, http.server, json, os, platform, re, shutil, signal, socket, socketserver, stat, subprocess
 import sys, tarfile, threading, time, unicodedata, urllib.request, webbrowser
 from urllib.parse import unquote_plus
 
@@ -20,7 +20,6 @@ PUBLIC = '--public' in args
 DATA_DIR = os.environ.get('EV3_DATA_DIR') or os.path.join(ROOT, 'data')  # tests use their own folder
 DATA_FILE = os.path.join(DATA_DIR, 'progress.json')
 WORK_DIR = os.path.join(DATA_DIR, 'work')  # full work of each student (programs included)
-CODE_FILE = os.path.join(DATA_DIR, 'teacher-code.txt')
 TOOLS_DIR = os.path.join(ROOT, 'tools')
 
 lock = threading.Lock()
@@ -42,11 +41,9 @@ if os.path.exists(DATA_FILE):
     except (OSError, ValueError):
         pass
 
-# Teacher code: protects the dashboard when it is opened from another computer (not needed on this one).
-if not os.path.exists(CODE_FILE):
-    with open(CODE_FILE, 'w') as f:
-        f.write(''.join(random.choice('23456789') for _ in range(6)))
-TEACHER_CODE = open(CODE_FILE).read().strip()
+# Teacher password: protects the dashboard when it is opened from another computer (not needed on this one).
+# Same as online: the TEACHER_CODE environment variable if set, otherwise prof2026.
+TEACHER_CODE = os.environ.get('TEACHER_CODE', '').strip() or 'prof2026'
 
 
 def persist():
@@ -232,7 +229,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._json({'ok': True, 'time': time.time()})
         if path == '/api/info':
             return self._json({'ips': local_ips(), 'host': local_hostname(), 'port': PORT, 'publicUrl': public_url,
-                               'needsCode': not self._local(), 'teacher': self._teacher(params)})
+                               'needsCode': not self._local(), 'teacher': self._teacher(params),
+                               'passwordOk': params.get('code', '') == TEACHER_CODE})
         if path == '/api/progress':
             if not self._teacher(params):
                 return self._json({'error': 'teacher code required'}, 403)
@@ -393,7 +391,7 @@ with socketserver.ThreadingTCPServer(('', PORT), Handler) as httpd:
     url = f'http://localhost:{PORT}/'
     print('EV3 Simulator class server')
     print(f'  Teacher dashboard on this computer:  {url}teacher.html')
-    print(f'  Teacher code (dashboard on another computer):  {TEACHER_CODE}')
+    print(f'  Teacher password (dashboard on another computer):  {TEACHER_CODE}')
     for ip in local_ips():
         print(f'  Same Wi-Fi as this computer:  http://{ip}:{PORT}/')
     tunnel = start_tunnel() if PUBLIC else None
