@@ -457,6 +457,8 @@ function runProgram() {
   Blockly.hideChaff();
   if (!checkHats()) return;
   const prog = currentProgram();
+  // the program writes on the brick screen or waits for its buttons: show the brick
+  if ($('lowerPanel').hidden && /R\.(disp[A-Z]|button\()/.test(prog.code)) { showLower(true, false); log('The EV3 brick is shown below: your program uses its screen or buttons.'); }
   if (App.mode === 'fll') {
     const S = FLLUI.S;
     if (S.ended) { showSimError('This match is over. Click "New match" to play again.'); return; }
@@ -491,6 +493,15 @@ function runProgram() {
   App.lastNow = performance.now();
   updateButtons();
   log('▶ Program started');
+}
+
+// EV3 brick, variables and console: hidden by default (more room), opened on demand or when a program uses the brick.
+function showLower(open, remember = true) {
+  $('lowerPanel').hidden = !open;
+  $('lowerToggle').setAttribute('aria-expanded', String(open));
+  $('lowerToggle').querySelector('.lt-arrow').textContent = open ? '▾' : '▸';
+  if (remember) LS.set(STORAGE + 'lowerOpen', open);
+  window.dispatchEvent(new Event('resize'));
 }
 
 function stopProgram() {
@@ -1093,6 +1104,13 @@ function setupWorkspaceChrome() {
 }
 
 // ---------- Init ----------
+// The block palette has its own, smaller scale (less wide, more room for the program); blocks dragged
+// into the program take the editor's size.
+const PALETTE_SCALE = 0.75;
+class PaletteFlyout extends ContinuousFlyout {
+  getFlyoutScale() { return PALETTE_SCALE; }
+}
+
 function init() {
   // Dynamic categories need their callbacks: inject without them, then update the toolbox.
   const staticToolbox = { ...EV3_TOOLBOX, contents: EV3_TOOLBOX.contents.map((c) => (c.custom ? { kind: 'category', name: c.name, colour: c.colour, contents: [] } : c)) };
@@ -1101,7 +1119,7 @@ function init() {
     renderer: 'zelos',
     theme: EV3_THEME,
     media: 'lib/blockly/media/',
-    plugins: { toolbox: ContinuousToolbox, flyoutsVerticalToolbox: ContinuousFlyout, metricsManager: ContinuousMetrics },
+    plugins: { toolbox: ContinuousToolbox, flyoutsVerticalToolbox: PaletteFlyout, metricsManager: ContinuousMetrics },
     trashcan: true,
     sounds: true,
     zoom: { controls: false, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.3, scaleSpeed: 1.15 },
@@ -1199,6 +1217,8 @@ function init() {
 
   setupFll();
   $('wTeacher').onclick = teacherLogin;
+  $('lowerToggle').onclick = () => showLower($('lowerPanel').hidden);
+  showLower(LS.get(STORAGE + 'lowerOpen', false), false);
   setupClassroom();
   $('btnBig').onclick = () => {
     document.body.classList.toggle('bigfield');

@@ -457,3 +457,9 @@ td.st.exam { color: #5b3cc4; font-weight: 600; }
 .gauge-fg { height: 100%; background: #2ea043; }
 .gauge-fg.warn { background: #f0a020; }
 .gauge-fg.bad { background: #d9363e; }
+
+/* EV3 brick, variables and console: collapsible */
+.lower-toggle { display: flex; align-items: center; gap: 6px; width: 100%; border: none; border-top: 1px solid var(--border); border-radius: 0; background: #f6f8fa; color: var(--muted); font-weight: 600; padding: 7px 12px; text-align: left; }
+.lower-toggle:hover { background: #eef2f6; color: #333; }
+.lt-arrow { font-size: 12px; width: 12px; }
+.lower[hidden] { display: none; }
