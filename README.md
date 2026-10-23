@@ -10,7 +10,7 @@ A web app to program a LEGO® MINDSTORMS® EV3 robot with blocks, in the style o
    The teacher dashboard opens in your browser with the link and a QR code. **📺 Show to the class** displays them in large size for the projector.
    - Keep the window open and the computer awake during the lesson.
    - The link changes at each launch: always take it from the dashboard.
-2. **Students:** open the link, choose their **class** then their **name** in the class lists (`js/roster.js`, one line per class, editable) (or scan the QR code). They type their first name (class optional) and choose:
+2. **Students:** open the link, choose their **class** then their **name** in the class lists (`js/roster.js`, one line per class, editable) (or scan the QR code), then choose:
    - **Guided challenges:** 10 challenges, step by step;
    - **Free programming:** playground with 7 mats.
 3. **Next challenge:** when "Check my solution" reaches 80 % (`passScore` in `js/config.js`), the challenge is passed and the next one unlocks (**Next challenge →**). In the dashboard, **Unlock next** lets a stuck student move on.
