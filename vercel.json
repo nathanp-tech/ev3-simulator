@@ -7,7 +7,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 20,
-      "includeFiles": "api/_core.py"
+      "includeFiles": "api/_*.{py,json}"
     }
   },
   "rewrites": [

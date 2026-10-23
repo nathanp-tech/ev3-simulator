@@ -14,7 +14,7 @@ const chName = (id) => { const c = CHALLENGES.find((x) => x.id === id); return c
 // ---------- Class lists ----------
 async function loadTeacherRoster() {
   try {
-    const d = await (await fetch('api/roster', { cache: 'no-store' })).json();
+    const d = await (await tfetch('api/roster')).json();
     T.roster = d.roster && Object.keys(d.roster).length ? d.roster : null;
   } catch (e) { T.roster = null; }
   refreshClasses();
@@ -245,7 +245,7 @@ function setupWatchExtras() {
     } catch (e) { alert(e.message); }
   };
   if (!W.static && !String(W.id).startsWith('exam-')) {
-    fetch('api/notes/' + W.id, { cache: 'no-store' }).then((r) => r.json()).then((d) => { W.notes = d.notes || []; renderWatchNotes(); }).catch(() => {});
+    tfetch('api/notes/' + W.id).then((r) => r.json()).then((d) => { W.notes = d.notes || []; renderWatchNotes(); }).catch(() => {});
   } else {
     $('wHist').hidden = true;
     document.querySelector('.w-notes').hidden = true;

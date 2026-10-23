@@ -464,3 +464,7 @@ td.st.exam { color: #5b3cc4; font-weight: 600; }
 .lt-arrow { font-size: 12px; width: 12px; }
 .lower[hidden] { display: none; }
 .reset-parts { display: flex; flex-direction: column; gap: 6px; background: #f6f8fa; border-radius: 10px; padding: 10px 12px; }
+.wcode { display: flex; gap: 10px; }
+.wcode input { font-size: 22px; padding: 10px 14px; border-radius: 12px; width: 220px; letter-spacing: 2px; }
+.wcode button { font-size: 18px; padding: 10px 20px; border-radius: 12px; }
+.share-code { margin: 4px 0 6px; }

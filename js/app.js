@@ -141,8 +141,49 @@ function showWelcome() {
   updateExamBanner();
   renderHelpButton();
   pickClass('');
-  loadRoster().then(() => { if (!$('welcome').hidden && !$('wName').value) pickClass($('wClass').value); });
+  checkClassCode().then((ok) => { if (ok) loadRoster().then(() => { if (!$('welcome').hidden && !$('wName').value) pickClass($('wClass').value); }); });
 }
+
+// The class code (in the link / QR code of the dashboard, or typed once) opens the class lists on this device.
+async function checkClassCode() {
+  const u = new URL(location.href);
+  if (u.searchParams.get('c')) {
+    ClassCode.set(u.searchParams.get('c').trim());
+    u.searchParams.delete('c');
+    history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
+  }
+  const info = await Sync.getJson('api/info');
+  const ok = !info || !info.studentCodeRequired || (ClassCode.get() && (await Sync.getJson('api/join') || {}).ok);
+  $('wCodeStep').hidden = !!ok;
+  $('wPick').hidden = !ok;
+  $('wModeTitle').hidden = $('wChoices').hidden = !ok;
+  if (!ok) { $('wCode').value = ''; setTimeout(() => $('wCode').focus(), 50); }
+  return ok;
+}
+async function submitClassCode() {
+  const c = $('wCode').value.trim();
+  if (!c) return;
+  ClassCode.set(c);
+  if ((await Sync.getJson('api/join') || {}).ok) { $('wError').textContent = ''; showWelcome(); return; }
+  ClassCode.set('');
+  $('wError').textContent = 'This code is not right. Ask your teacher.';
+  $('wCode').select();
+}
+// The teacher changed the code during a session: ask for the new one (the work stays on this computer meanwhile).
+let askingCode = false;
+Sync.onNeedCode = () => {
+  if (askingCode || !$('welcome').hidden) return;
+  askingCode = true;
+  openModal(`<h2>🔑 Class code</h2><p>Your teacher changed the class code. Type the new code to keep saving your work online.</p>
+    <p><input id="mCode" autocomplete="off" style="font-size:18px;padding:8px 10px;width:180px"> <button class="primary" id="mCodeGo">OK</button></p><p id="mCodeErr" class="werr"></p>`);
+  const go = async () => {
+    ClassCode.set($('mCode').value.trim());
+    if ((await Sync.getJson('api/join') || {}).ok) { askingCode = false; closeModal(); Sync.push(liveState(), true); }
+    else $('mCodeErr').textContent = 'This code is not right.';
+  };
+  $('mCodeGo').onclick = go;
+  $('mCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+};
 
 // ---------- Welcome: the student chooses their class, then their name (js/roster.js) ----------
 const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
@@ -152,7 +193,7 @@ function pickClass(cls) {
   const roster = currentRoster();
   if (cls && (!roster[cls] || classClosed(cls))) cls = '';
   $('wClass').value = cls;
-  $('wClasses').innerHTML = Object.keys(roster).sort(byName).map((c) => classClosed(c)
+  $('wClasses').innerHTML = !Object.keys(roster).length ? '<span class="muted">Loading the classes…</span>' : Object.keys(roster).sort(byName).map((c) => classClosed(c)
     ? `<button class="wclass closed" disabled title="Your teacher closed this class for now">🔒 ${esc(c)}</button>`
     : `<button class="wclass${c === cls ? ' on' : ''}" data-class="${esc(c)}">${esc(c)}</button>`).join('');
   $('wClasses').querySelectorAll('[data-class]').forEach((b) => { b.onclick = () => pickClass(b.dataset.class); });
@@ -1149,6 +1190,8 @@ function init() {
   // Welcome screen
   document.querySelectorAll('.choice').forEach((b) => { b.onclick = () => chooseMode(b.dataset.mode); });
   $('wChange').onclick = () => pickClass($('wClass').value);
+  $('wCodeGo').onclick = submitClassCode;
+  $('wCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitClassCode(); });
   $('wOpen').onclick = () => $('wFile').click();
   $('wFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openWorkFile(f); };
 
@@ -1202,7 +1245,7 @@ function init() {
     if (!Progress.data) return;
     storeWorkspace();
     if (Sync.online) {
-      try { fetch('api/work', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...Progress.data, live: liveState('left') }) }); } catch (err) { /* ignore */ }
+      try { fetch('api/work', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', 'X-Class-Code': ClassCode.get() }, body: JSON.stringify({ ...Progress.data, live: liveState('left') }) }); } catch (err) { /* ignore */ }
       if (Sync.savedRecently(20)) return;
     }
     if (Progress.minutesSinceSave() > 0.5) { e.preventDefault(); e.returnValue = ''; }

@@ -194,6 +194,18 @@ function errorCategory(msg) {
 // Removes the measured values from criteria labels so they can be counted ("Stops 3 to 12 cm from the wall").
 function criterionKey(label) { return String(label).replace(/\s*\((measured|mesuré)[^)]*\)/i, '').replace(/\s*\(\d[^)]*\)\s*$/, '').trim(); }
 
+// ---------- Class code: every request of the student app carries it (Manage → class code) ----------
+const ClassCode = {
+  get() { try { return localStorage.getItem('ev3sim.classCode') || ''; } catch (e) { return ''; } },
+  set(c) { try { if (c) localStorage.setItem('ev3sim.classCode', c); else localStorage.removeItem('ev3sim.classCode'); } catch (e) { /* ignore */ } },
+};
+function sfetch(url, opts = {}) {
+  return fetch(url, { cache: 'no-store', ...opts, headers: { ...(opts.headers || {}), 'X-Class-Code': ClassCode.get() } }).then((r) => {
+    if (r.status === 401 && Sync.onNeedCode) Sync.onNeedCode();
+    return r;
+  });
+}
+
 // ---------- Live sync with the class server (optional) ----------
 const Sync = {
   online: false,
@@ -219,7 +231,8 @@ const Sync = {
     const wasDirty = Progress.dirty;
     Progress.dirty = false;
     try {
-      const r = await fetch('api/work', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...Progress.data, live }) });
+      const r = await sfetch('api/work', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...Progress.data, live }) });
+      if (r.status === 401) { Progress.dirty = true; return false; }
       if (r.status === 410) { if (this.onDeleted) this.onDeleted(); return false; }
       if (r.status === 409) { if (this.onRemoteChange) this.onRemoteChange(); return false; }
       if (!r.ok) throw new Error('save failed');
@@ -239,13 +252,13 @@ const Sync = {
   async find(name, className) {
     if (!this.online) return [];
     try {
-      const r = await fetch(`api/work/find?name=${encodeURIComponent(name)}&className=${encodeURIComponent(className || '')}`, { cache: 'no-store' });
+      const r = await sfetch(`api/work/find?name=${encodeURIComponent(name)}&className=${encodeURIComponent(className || '')}`, { cache: 'no-store' });
       const d = await r.json();
       return d.matches || [];
     } catch (e) { return []; }
   },
   async fetchWork(id) {
-    const r = await fetch('api/work/' + encodeURIComponent(id), { cache: 'no-store' });
+    const r = await sfetch('api/work/' + encodeURIComponent(id));
     if (!r.ok) throw new Error('work not found');
     return r.json();
   },
@@ -255,7 +268,7 @@ const Sync = {
     if (Date.now() - this.lastPoll < (CLASSROOM.syncPollSeconds || 3) * 1000 - 50) return;
     this.lastPoll = Date.now();
     try {
-      const r = await fetch(`api/student/${Progress.data.studentId}?className=${encodeURIComponent(Progress.data.className || '')}`, { cache: 'no-store' });
+      const r = await sfetch(`api/student/${Progress.data.studentId}?className=${encodeURIComponent(Progress.data.className || '')}`, { cache: 'no-store' });
       const d = await r.json();
       this.applyStatus(d);
       if (d.now) this.serverOffset = d.now * 1000 - Date.now();
@@ -278,13 +291,13 @@ const Sync = {
   async post(url, body) {
     if (!this.online) return null;
     try {
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await sfetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       return r.ok ? r.json() : null;
     } catch (e) { return null; }
   },
   async getJson(url) {
     if (location.protocol === 'file:') return null;
-    try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? r.json() : null; } catch (e) { return null; }
+    try { const r = await sfetch(url); return r.ok ? r.json() : null; } catch (e) { return null; }
   },
   // Class settings chosen by the teacher in the dashboard (override js/config.js).
   async loadSettings() {

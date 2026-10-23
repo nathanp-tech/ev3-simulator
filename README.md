@@ -78,6 +78,7 @@ A third mode on the welcome screen, **🏆 FIRST LEGO League**, lets students pr
 
 ## Classroom tools (teacher dashboard)
 
+- **🔑 Class code:** students need it to open the app (class lists, saving…). It is **inside the link and the QR code** of the live view, so students who scan or click get in directly; others type it once on the welcome page (the device remembers it). Online, a 6-digit code is created automatically; change it in Manage → Class settings (empty = open to anyone with the address). If you change it during a lesson, connected students are asked for the new one. The class lists are never in a public file (`api/_roster.json` is only the default, served with the code).
 - **🙋 Help requests:** students click **I need help** (top bar). The dashboard shows a queue at the top of the live view (oldest first, with a sound for each new request) and a 🙋 next to the student. **👁 View** opens their program, **✓ Done** tells the student their teacher has seen it.
 - **Class lists:** Manage → *Class lists*: one box per class, one name per line, **+ Add a class**, **📋 Paste from Excel** (two columns: class, name). Saved online; the welcome page uses them at once (`js/roster.js` is only the default).
 - **Commands for a class** (buttons in each class header of the live view):

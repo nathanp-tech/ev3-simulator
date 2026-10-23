@@ -103,6 +103,7 @@
           <div class="share-text">
             <div class="muted">Students open this link (any network, any computer):</div>
             <div class="share-url" id="shareUrl"></div>
+            <div id="shareCode" class="share-code"></div>
             <div class="actions"><button id="btnCopy">📋 Copy link</button><button id="btnShow" class="primary">📺 Show to the class</button></div>
           </div>
         </div>
@@ -144,6 +145,7 @@
           <h3 style="margin-top:0">Class settings</h3>
           <div class="settings">
             <label>Pass score for a challenge <input id="setPass" type="number" min="0" max="100" step="5"> %</label>
+            <label>Class code for students <input id="setStudentCode" autocomplete="off" style="width:120px"> <span class="muted">(needed to open the app; it is in the link and QR code of the live view. Empty = open to anyone with the address)</span></label>
             <label>Remind students to download their work after <input id="setReminder" type="number" min="1" max="240"> min <span class="muted">(only when they are offline)</span></label>
             <label><input id="setGuided" type="checkbox"> Allow <b>guided challenges</b></label>
             <label><input id="setFree" type="checkbox"> Allow <b>free programming</b></label>

@@ -75,6 +75,7 @@ async function startLive() {
     if (!r.ok) throw new Error('no server');
     $('loginCard').hidden = true;
     $('liveArea').hidden = false;
+    showServerInfo(); // now with the teacher password: the class code is in the link
     await refreshLive();
     clearInterval(T.liveTimer);
     T.liveTimer = setInterval(refreshLive, 3000);
@@ -181,18 +182,20 @@ function qrSvg(text) {
 function showShare(url) {
   $('shareBox').hidden = false;
   $('shareUrl').textContent = url;
+  $('shareCode').innerHTML = T.studentCode ? `Class code: <b>${esc(T.studentCode)}</b> <span class="muted">(already in the link and the QR code; students who open the site without it must type it once)</span>` : '<span class="muted">No class code: anyone with the address can open the app (Manage → Class settings).</span>';
   $('shareQr').innerHTML = qrSvg(url);
   $('btnCopy').onclick = () => navigator.clipboard.writeText(url).then(() => { $('btnCopy').textContent = '✓ Copied'; });
-  $('btnShow').onclick = () => openModal(`<div class="big-share"><h2>Open the EV3 Simulator</h2>${qrSvg(url)}<div class="share-url">${esc(url)}</div><p class="muted">Scan the QR code or type the link, then type your first name.</p></div>`);
+  $('btnShow').onclick = () => openModal(`<div class="big-share"><h2>Open the EV3 Simulator</h2>${qrSvg(url)}<div class="share-url">${esc(url)}</div><p class="muted">Scan the QR code or type the link${T.studentCode ? ` (class code <b>${esc(T.studentCode)}</b>)` : ''}, then choose your class and your name.</p></div>`);
 }
 
 async function showServerInfo() {
   try {
-    const r = await fetch('api/info', { cache: 'no-store' });
-    const { ips, host, port, publicUrl, hosted, codeConfigured } = await r.json();
+    const r = await tfetch('api/info');
+    const { ips, host, port, publicUrl, hosted, studentCode } = await r.json();
     T.hosted = !!hosted;
-    if (hosted && !codeConfigured) { $('serverInfo').innerHTML = '<p>⚠️ No teacher code is set yet. In Vercel: Project → Settings → Environment Variables, add <code>TEACHER_CODE</code>, then redeploy.</p>'; return; }
-    if (publicUrl) showShare(publicUrl);
+    T.studentCode = studentCode || '';
+    // the link and the QR code carry the class code: students who scan them get in directly
+    if (publicUrl) showShare(publicUrl + (T.studentCode ? '?c=' + encodeURIComponent(T.studentCode) : ''));
     else setTimeout(showServerInfo, 3000); // the public link takes a few seconds to open
     const urls = ips.map((ip) => `<code>http://${ip}:${port}/</code>`).concat(host ? [`<code>http://${host}:${port}/</code>`] : []).join(' or ');
     $('serverInfo').innerHTML = publicUrl ? '' : `<p>✅ Class server running. <b>No public link yet</b>: it appears here a few seconds after starting <code>start.command</code>. Same Wi-Fi only: ${urls}</p>`;
@@ -326,7 +329,8 @@ const studentLabel = (s) => `${s.name}${s.className ? ' (' + s.className + ')' :
 
 async function loadSettingsForm() {
   try {
-    const st = await (await fetch('api/settings', { cache: 'no-store' })).json();
+    const st = await (await tfetch('api/settings')).json();
+    $('setStudentCode').value = st.studentCode || '';
     $('setPass').value = st.passScore;
     $('setReminder').value = st.saveReminderMinutes;
     $('setGuided').checked = st.allowGuided !== false;
@@ -336,9 +340,10 @@ async function loadSettingsForm() {
 }
 async function saveSettings() {
   if (!$('setGuided').checked && !$('setFree').checked && !$('setFLL').checked) { $('settingsMsg').textContent = 'At least one mode must be allowed.'; return; }
-  const body = { passScore: Number($('setPass').value) || 80, saveReminderMinutes: Number($('setReminder').value) || 20, allowGuided: $('setGuided').checked, allowFree: $('setFree').checked, allowFLL: $('setFLL').checked };
+  const body = { studentCode: $('setStudentCode').value.trim(), passScore: Number($('setPass').value) || 80, saveReminderMinutes: Number($('setReminder').value) || 20, allowGuided: $('setGuided').checked, allowFree: $('setFree').checked, allowFLL: $('setFLL').checked };
   const r = await tfetch('api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   $('settingsMsg').textContent = r.ok ? '✓ Saved. Students get the new settings within 30 seconds.' : 'Could not save (teacher code?).';
+  if (r.ok) showServerInfo();
   if (r.ok) Object.assign(CLASSROOM, body);
 }
 
@@ -378,7 +383,7 @@ const selectedIds = () => [...document.querySelectorAll('.mg-sel:checked')].map(
 const byId = (id) => T.live.find((s) => s.studentId === id);
 
 async function changeWork(id, fn) {
-  const r = await fetch('api/work/' + id, { cache: 'no-store' });
+  const r = await tfetch('api/work/' + id);
   if (!r.ok) throw new Error('work not found');
   const work = await r.json();
   fn(work);
@@ -453,7 +458,7 @@ function setupManage() {
     if (e.target.classList.contains('mg-reset')) resetStudentsDialog([id]);
     if (e.target.classList.contains('mg-del')) await bulk([id], 'Delete (a copy is kept in data/archive/)', (sid) => adminPost({ action: 'delete', studentIds: [sid] }));
     if (e.target.classList.contains('mg-dl')) {
-      const work = await (await fetch('api/work/' + id, { cache: 'no-store' })).json();
+      const work = await (await tfetch('api/work/' + id)).json();
       downloadJson(`${slugName(s.name)}${s.className ? '_' + slugName(s.className) : ''}_EV3-work.json`, work);
     }
   });
@@ -547,7 +552,7 @@ function watchSlots(work) {
 async function refreshWatch(first) {
   if (!W.id || $('modal').hidden) return stopWatch();
   let work;
-  try { work = W.static || await (await fetch('api/work/' + W.id, { cache: 'no-store' })).json(); } catch (e) { return; }
+  try { work = W.static || await (await tfetch('api/work/' + W.id)).json(); } catch (e) { return; }
   if (!work || !work.challenges) return;
   W.work = work;
   const snap = T.live.find((s) => s.studentId === W.id);
@@ -715,7 +720,7 @@ function init() {
     const d = e.target.closest('[data-details]');
     if (d) {
       const snap = T.live[Number(d.dataset.details)];
-      fetch('api/work/' + snap.studentId, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : snap)).catch(() => snap)
+      tfetch('api/work/' + snap.studentId).then((r) => (r.ok ? r.json() : snap)).catch(() => snap)
         .then((full) => showDetails({ ...snap, ...full, challenges: Object.fromEntries(Object.entries(full.challenges || snap.challenges).map(([k, v]) => [k, { ...(snap.challenges[k] || {}), ...v }])) }, T.live, true));
     }
   });

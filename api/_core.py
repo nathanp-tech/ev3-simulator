@@ -20,7 +20,7 @@ Keys (prefix ev3:):
   archive:NAME           copy of everything before a delete / reset (180 days)
   stats:YYYY-MM   hash   day -> number of database commands (quota gauge, online only)
 """
-import base64, json, os, re, threading, time, unicodedata, urllib.parse, urllib.request, zlib
+import base64, json, os, random, re, threading, time, unicodedata, urllib.parse, urllib.request, zlib
 
 P = 'ev3:'
 ID = re.compile(r'[\w-]{4,64}')
@@ -310,9 +310,28 @@ class Api:
         self.r(['SET', P + 'st:' + sid, json.dumps(st)])
         return st
 
-    def settings(self):
-        s = {**DEFAULT_SETTINGS, **(self.get_json('settings', {}) or {})}
+    def settings(self, teacher=False):
+        raw = self.get_json('settings', {}) or {}
+        s = {**DEFAULT_SETTINGS, **{k: v for k, v in raw.items() if k != 'studentCode'}}
+        if teacher:
+            s['studentCode'] = self.student_code()
         return {**s, **HOSTED_SYNC} if self.hosted else s
+
+    # Class code: students need it (link / QR code of the dashboard, or typed once) to use the app.
+    # Online, one is created automatically; the teacher can change it or remove it (empty = open).
+    def student_code(self):
+        raw = self.get_json('settings', {}) or {}
+        if 'studentCode' not in raw and self.hosted:
+            raw['studentCode'] = ''.join(random.choice('23456789') for _ in range(6))
+            self.r(['SET', P + 'settings', json.dumps(raw)])
+        return str(raw.get('studentCode') or '')
+
+    def is_student(self, ctx, params, body=None):
+        if ctx.get('local') or self.is_teacher(ctx, params, body):
+            return True
+        code = self.student_code()
+        given = str(ctx['headers'].get('X-Class-Code') or (params or {}).get('c') or (body or {}).get('classCode') or '').strip()
+        return not code or given == code
 
     def snaps(self):
         return hash_dict(self.r(['HGETALL', P + 'snap'])[0])
@@ -350,7 +369,13 @@ class Api:
                 ['SET', P + 'st:' + sid, json.dumps({'deleted': True})]]
 
     def roster(self):
-        return self.get_json('roster')
+        r = self.get_json('roster')
+        if r is None:
+            try:
+                r = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '_roster.json'), encoding='utf-8'))
+            except (OSError, ValueError):
+                r = {}
+        return r
 
     # ---------- request handling ----------
     def is_teacher(self, ctx, params, body=None):
@@ -372,10 +397,18 @@ class Api:
             return 200, {'ok': True, 'time': time.time()}
         if path == '/api/info':
             code = str(params.get('code', '')).strip()
-            return 200, {**ctx.get('info', {}), 'hosted': self.hosted, 'needsCode': not ctx.get('local'), 'teacher': teacher,
-                         'passwordOk': code == self.teacher_code, 'codeConfigured': True}
+            info = {**ctx.get('info', {}), 'hosted': self.hosted, 'needsCode': not ctx.get('local'), 'teacher': teacher,
+                    'passwordOk': code == self.teacher_code, 'codeConfigured': True, 'studentCodeRequired': bool(self.student_code()) and not ctx.get('local')}
+            if teacher:
+                info['studentCode'] = self.student_code()
+            return 200, info
         if path == '/api/settings':
-            return 200, self.settings()
+            return 200, self.settings(teacher)
+        if path == '/api/join':
+            return 200, {'ok': self.is_student(ctx, params)}
+        # ----- students of the class (class code) -----
+        if not self.is_student(ctx, params):
+            return 401, {'error': 'class code required', 'needCode': True}
         if path == '/api/roster':
             return 200, {'roster': self.roster()}
         if path == '/api/classctl':
@@ -456,6 +489,8 @@ class Api:
 
     def post(self, path, data, ctx):
         teacher = self.is_teacher(ctx, None, data)
+        if not self.is_student(ctx, None, data):
+            return 401, {'error': 'class code required', 'needCode': True}
         if path in ('/api/progress', '/api/work'):
             sid = str(data.get('studentId', ''))
             if not ID.fullmatch(sid):
@@ -559,8 +594,11 @@ class Api:
             return 200, {'ok': True}
         if path == '/api/settings':
             cur = {**DEFAULT_SETTINGS, **(self.get_json('settings', {}) or {})}
-            self.r(['SET', P + 'settings', json.dumps({**cur, **{k: data[k] for k in DEFAULT_SETTINGS if k in data}})])
-            return 200, self.settings()
+            new = {**cur, **{k: data[k] for k in DEFAULT_SETTINGS if k in data}}
+            if 'studentCode' in data:
+                new['studentCode'] = re.sub(r'\s+', '', str(data['studentCode'] or ''))[:30]
+            self.r(['SET', P + 'settings', json.dumps(new)])
+            return 200, self.settings(True)
         if path == '/api/roster':
             roster = data.get('roster')
             if not isinstance(roster, dict):

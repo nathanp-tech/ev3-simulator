@@ -13,10 +13,15 @@ CODE = sys.argv[2] if len(sys.argv) > 2 else '123456'
 fails = 0
 
 
-def call(method, path, body=None, teacher=False, code=None):
+CLASS = ''  # class code, read from the server below
+
+
+def call(method, path, body=None, teacher=False, code=None, klass=None):
     headers = {'Content-Type': 'application/json'}
     if teacher:
         headers['X-Teacher-Code'] = code or CODE
+    else:
+        headers['X-Class-Code'] = CLASS if klass is None else klass
     req = urllib.request.Request(BASE + path, data=json.dumps(body).encode() if body is not None else None, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -31,18 +36,30 @@ def check(ok, label, detail=''):
     print(('OK   ' if ok else 'FAIL ') + label + (f'  [{detail}]' if not ok or detail else ''))
 
 
-A, B = 'apitest-aaaa', 'apitest-bbbb'
+A, B = 'apitest-a%x' % int(time.time() * 1000), 'apitest-b%x' % int(time.time() * 1000)
+# class code: strangers get nothing (names, work, saving)
+if CLASS and not TRUSTED:
+    check(info.get('studentCodeRequired') and 'studentCode' not in info, 'class code required, not revealed to students')
+    for path in ('/api/roster', '/api/work/find?name=a', '/api/classctl'):
+        s, r = call('GET', path, klass=''); check(s == 401, 'no code: ' + path + ' refused')
+    s, r = call('GET', '/api/roster', klass='wrong'); check(s == 401, 'wrong code refused')
+    s, r = call('POST', '/api/work', {'studentId': 'apitest-zzzz', 'name': 'x'}, klass=''); check(s == 401, 'no code: saving refused')
+    s, r = call('GET', '/api/join'); check(r.get('ok'), 'right code accepted')
+    s, r = call('GET', '/api/settings', klass=''); check('studentCode' not in r, 'public settings do not show the code')
+
 work = lambda sid, name, cls, rev=0, **kw: {'type': 'ev3-progress', 'studentId': sid, 'name': name, 'className': cls, 'adminRev': rev,
                                             'mode': 'guided', 'challenges': {'c1': {'status': 'open', 'program': {'p': 1}}}, 'free': {}, 'events': [], **kw}
 
 s, r = call('GET', '/api/ping'); check(s == 200, 'ping')
 s, info = call('GET', '/api/info')
 TRUSTED = not info.get('needsCode')  # class server opened on its own computer: no password asked
+s, tinfo = call('GET', '/api/info', teacher=True)
+CLASS = tinfo.get('studentCode') or ''
 
 
 def denied(status, label):
     if not TRUSTED:
-        check(status == 403, label)
+        check(status in (401, 403), label)
 
 s, r = call('POST', '/api/work', work(A, 'Adriana', '4E')); check(s == 200 and r.get('rev') == 0, 'student saves')
 s, r = call('POST', '/api/work', work(B, 'Adriana', '4D')); check(s == 200, 'second student with the same name, other class')
