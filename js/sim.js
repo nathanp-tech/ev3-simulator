@@ -28,9 +28,21 @@ const BUMPER_GEO = {
   left: [3.5, -8.9, 9.5, -7.5], right: [3.5, 7.5, 9.5, 8.9], back: [-7.4, -3.5, -6, 3.5],
 };
 
+// Classic EV3 driving base (guided challenges, free programming): wheels on B and C, medium motor on A, 4 sensors.
 const DEFAULT_CONFIG = {
   sensors: { 1: { type: 'touch', mount: 'front' }, 2: { type: 'gyro', mount: 'front' }, 3: { type: 'color', mount: 'front' }, 4: { type: 'ultrasonic', mount: 'front' } },
-  motors: { A: { type: 'medium', role: 'arm' }, B: { type: 'large', role: 'left' }, C: { type: 'large', role: 'right' }, D: { type: 'none', role: 'free' } },
+  motors: { A: { type: 'medium', role: 'free' }, B: { type: 'large', role: 'left' }, C: { type: 'large', role: 'right' }, D: { type: 'none', role: 'free' } },
+};
+// FIRST LEGO League robot: the same base with a front arm on motor A (it acts on the mission models).
+const FLL_CONFIG = {
+  sensors: DEFAULT_CONFIG.sensors,
+  motors: { ...DEFAULT_CONFIG.motors, A: { type: 'medium', role: 'arm' } },
+};
+// The guided challenges always use the classic robot: an "arm" attachment is only for the FLL table.
+const classicRobot = (cfg) => {
+  const c = JSON.parse(JSON.stringify(cfg || DEFAULT_CONFIG));
+  for (const m of Object.values(c.motors || {})) if (m.role === 'arm') m.role = 'free';
+  return c;
 };
 
 const ROBOT_PRESETS = {
@@ -43,6 +55,7 @@ const ROBOT_PRESETS = {
     sensors: { 1: { type: 'touch', mount: 'front' }, 2: { type: 'gyro', mount: 'front' }, 3: { type: 'ultrasonic', mount: 'right' }, 4: { type: 'ultrasonic', mount: 'front' } },
     motors: DEFAULT_CONFIG.motors,
   },
+  'FLL robot (front arm on motor A)': FLL_CONFIG,
   'Explorer (infrared + beacon)': {
     sensors: { 1: { type: 'touch', mount: 'front' }, 2: { type: 'gyro', mount: 'front' }, 3: { type: 'color', mount: 'front' }, 4: { type: 'infrared', mount: 'front' } },
     motors: DEFAULT_CONFIG.motors,

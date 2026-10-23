@@ -468,3 +468,5 @@ td.st.exam { color: #5b3cc4; font-weight: 600; }
 .wcode input { font-size: 22px; padding: 10px 14px; border-radius: 12px; width: 220px; letter-spacing: 2px; }
 .wcode button { font-size: 18px; padding: 10px 20px; border-radius: 12px; }
 .share-code { margin: 4px 0 6px; }
+body.preview #topbar { background: #fff6e5; }
+body.preview #studentChip { background: #f0a020; color: #fff; }

@@ -11,6 +11,7 @@ const out = [];
 const say = (s) => { out.push(s); document.getElementById('out').textContent = out.join('\n'); };
 function run() {
   const sim = new Sim();
+  sim.setConfig(FLL_CONFIG);
   sim.loadMat(FLL.mat);
   let allOk = true;
   for (const docks of [{ mine: 13, city: 14, farm: 15 }, { mine: 15, city: 13, farm: 14 }, { mine: 14, city: 15, farm: 13 }]) {

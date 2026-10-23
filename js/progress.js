@@ -67,15 +67,16 @@ const Progress = {
   },
 
   restoreLocal() {
-    try { const s = localStorage.getItem(PROGRESS_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+    try { const s = localStorage.getItem(this.key); return s ? JSON.parse(s) : null; } catch (e) { return null; }
   },
   persist() {
     if (!this.data) return;
     this.data.updatedAt = new Date().toISOString();
     this.dirty = true;
-    try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(this.data)); } catch (e) { /* storage full or blocked */ }
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) { /* storage full or blocked */ }
   },
-  clearLocal() { try { localStorage.removeItem(PROGRESS_KEY); } catch (e) { /* ignore */ } },
+  clearLocal() { try { localStorage.removeItem(this.key); } catch (e) { /* ignore */ } },
+  key: PROGRESS_KEY, // the teacher preview keeps its own work under another key
 
   ch(id) { return id === 'fll' ? this.data.fll : this.data.challenges[id || this.data.current]; },
   log(type, ch, detail) {
@@ -223,8 +224,9 @@ const Sync = {
     return this.online;
   },
   // Saves the whole work (programs included) on the class server. Also tells the teacher what the student is doing.
+  disabled: false, // teacher preview: nothing goes to the class server
   async push(live, force = false) {
-    if (!this.online || !Progress.data) return false;
+    if (this.disabled || !this.online || !Progress.data) return false;
     // Intervals: fast on the class server, slower online (CLASSROOM.sync* come from the hosted server's settings).
     if (!force && Date.now() - this.lastPush < (Progress.dirty ? (CLASSROOM.syncPushSeconds || 4) : (CLASSROOM.syncHeartbeatSeconds || 15)) * 1000 - 50) return true;
     this.lastPush = Date.now();
@@ -264,7 +266,7 @@ const Sync = {
   },
   lastPoll: 0,
   async poll() {
-    if (!this.online || !Progress.data) return;
+    if (this.disabled || !this.online || !Progress.data) return;
     if (Date.now() - this.lastPoll < (CLASSROOM.syncPollSeconds || 3) * 1000 - 50) return;
     this.lastPoll = Date.now();
     try {
@@ -289,7 +291,7 @@ const Sync = {
   notesRev: undefined,
   // Small calls for the classroom features (js/classroom.js). They fail silently offline.
   async post(url, body) {
-    if (!this.online) return null;
+    if (this.disabled || !this.online) return null;
     try {
       const r = await sfetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       return r.ok ? r.json() : null;

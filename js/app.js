@@ -32,7 +32,7 @@ const App = {
 const progressMode = () => (App.mode === 'challenge' ? 'guided' : App.mode === 'fll' ? 'fll' : 'free');
 const appModeOf = (m) => (m === 'free' ? 'sandbox' : m === 'fll' ? 'fll' : 'challenge');
 const MODE_LABEL = { guided: '🧭 Guided challenges', free: '🛠️ Free programming', fll: '🏆 FIRST LEGO League' };
-const modeAllowed = (m) => (m === 'guided' ? CLASSROOM.allowGuided !== false : m === 'free' ? CLASSROOM.allowFree !== false : CLASSROOM.allowFLL !== false);
+const modeAllowed = (m) => App.preview || (m === 'guided' ? CLASSROOM.allowGuided !== false : m === 'free' ? CLASSROOM.allowFree !== false : CLASSROOM.allowFLL !== false);
 
 // ---------- Console and toast ----------
 function log(msg, kind = 'info') {
@@ -81,7 +81,8 @@ function loadProgram(state) {
 }
 function loadSlot(slot) {
   loadProgram(slot && slot.program);
-  applyConfig(slot && slot.robot ? slot.robot : DEFAULT_CONFIG, { save: false });
+  const robot = slot && slot.robot ? slot.robot : App.mode === 'fll' ? FLL_CONFIG : DEFAULT_CONFIG;
+  applyConfig(App.mode === 'challenge' ? classicRobot(robot) : robot, { save: false });
   setTimeout(applyNotes, 0); // teacher comments on the blocks of this program
 }
 let saveTimer = null;
@@ -471,6 +472,7 @@ function checkHats() {
 }
 
 function updateSaveStatus() {
+  if (App.preview) { $('syncStatus').textContent = 'Preview · not saved for students'; return; }
   const el = $('syncStatus');
   if (!Progress.data) { el.textContent = ''; return; }
   if (Sync.online) {
@@ -801,11 +803,40 @@ function liveState(status) {
 }
 
 // ---------- Modal ----------
+// ---------- Teacher preview: the student app with every challenge open (dashboard → 🎓 Student view) ----------
+// Nothing is sent to the class server; the teacher's work is kept on this computer under its own key.
+async function startPreview() {
+  const code = localStorage.getItem('ev3sim.teacherCode') || '';
+  const info = await Sync.getJson('api/info?code=' + encodeURIComponent(code));
+  if (info && !info.passwordOk && !(info.teacher && !info.needsCode)) {
+    showWelcome();
+    $('wError').textContent = 'The student view is for teachers: log in with the 👩‍🏫 Teacher button first.';
+    return;
+  }
+  App.preview = true;
+  Sync.disabled = true;
+  Progress.key = 'ev3sim.v2.preview';
+  const saved = Progress.restoreLocal();
+  const data = saved ? Progress.load(saved) : Progress.create('Teacher', '', 'guided');
+  for (const c of CHALLENGES) if (data.challenges[c.id].status === 'locked') data.challenges[c.id].status = 'open';
+  Progress.persist();
+  document.body.classList.add('preview');
+  startSession(data, { quiet: true });
+  $('chipName').textContent = '👩‍🏫 Teacher preview';
+  $('btnHelpMe').hidden = true;
+  $('syncStatus').textContent = 'Preview · not saved for students';
+  $('btnExit').textContent = 'Close preview';
+  $('btnExit').onclick = () => { storeWorkspace(); location.href = 'teacher.html'; };
+  $('btnSwitchMode').disabled = false;
+  log('👩‍🏫 Teacher preview: every challenge is open, switch freely between challenges and modes. Your work here stays on this computer.', 'success');
+}
+
 // Teacher login from the welcome page: the password is checked by the server, then the dashboard opens.
 function teacherLogin() {
   openModal(`<h2>👩‍🏫 Teacher dashboard</h2>
     <p><label>Password <input id="tPass" type="password" autocomplete="current-password" style="font-size:16px;padding:8px 10px;margin-left:6px"></label>
-    <button class="primary" id="tGo">Open</button></p><p id="tErr" class="werr"></p>`);
+    <button class="primary" id="tGo">Open</button></p>
+    <p><label><input type="checkbox" id="tPreview"> Open the <b>student view</b> instead (every challenge open, for trying them out)</label></p><p id="tErr" class="werr"></p>`);
   const go = async () => {
     const code = $('tPass').value.trim();
     if (!code) return;
@@ -814,7 +845,7 @@ function teacherLogin() {
       const info = await r.json();
       if (!info.passwordOk) { $('tErr').textContent = 'Wrong password.'; $('tPass').select(); return; }
       localStorage.setItem('ev3sim.teacherCode', code);
-      location.href = 'teacher.html';
+      location.href = $('tPreview') && $('tPreview').checked ? 'index.html?preview=1' : 'teacher.html';
     } catch (e) { $('tErr').textContent = 'The class server cannot be reached.'; }
   };
   $('tGo').onclick = go;
@@ -1276,7 +1307,7 @@ function init() {
   new ResizeObserver(resizeCanvas).observe($('simCanvas'));
   resizeCanvas();
   updateButtons();
-  showWelcome();
+  if (new URLSearchParams(location.search).get('preview')) startPreview(); else showWelcome();
   requestAnimationFrame(frame);
 }
 

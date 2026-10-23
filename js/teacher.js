@@ -587,7 +587,8 @@ async function refreshWatch(first) {
 
 function watchSetup(entry) {
   const sim = W.sim;
-  sim.setConfig((entry && entry.robot) || DEFAULT_CONFIG);
+  const robot = (entry && entry.robot) || (W.slot === 'fll' ? FLL_CONFIG : DEFAULT_CONFIG);
+  sim.setConfig(W.slot === 'fll' || W.slot === 'free' ? robot : classicRobot(robot));
   W.fll = null;
   if (W.slot === 'fll') {
     sim.loadMat(FLL.mat);
