@@ -271,7 +271,16 @@ function renderWatchHistory() {
   box.innerHTML = `<span class="muted">🕓 History:</span>
     <button class="hist-chip${live ? ' on' : ''}" data-ver="live">● Now</button>
     ${W.hist.map((v, i) => `<button class="hist-chip${W.version === i ? ' on' : ''} ${v.kind}" data-ver="${i}" title="${v.kind === 'check' ? 'Check my solution' : 'Run'} · ${new Date(v.t).toLocaleString()}">${new Date(v.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ${v.kind === 'check' ? '✅ ' + (v.score !== null ? v.score + '%' : '') : '▶'}</button>`).reverse().join('')}
-    ${W.hist.length ? '' : '<span class="muted">no version recorded yet (a version is kept at each Run / Check)</span>'}`;
+    ${W.hist.length ? '<button class="mini danger" id="wHistClear" title="Delete all the recorded versions of this student (every program)">🗑 Clear the history</button>' : '<span class="muted">no version recorded yet (a version is kept at each Run / Check)</span>'}`;
+  const clr = $('wHistClear');
+  if (clr) clr.onclick = async () => {
+    if (!confirm('Delete all the recorded versions of this student (all their programs)? Their current programs are kept.')) return;
+    try {
+      await adminPost({ action: 'clear-extras', studentId: W.id, history: true });
+      W.hist = []; W.version = null; W.last = '';
+      renderWatchHistory(); refreshWatch();
+    } catch (e) { alert(e.message); }
+  };
   box.querySelectorAll('[data-ver]').forEach((b) => {
     b.onclick = () => { W.version = b.dataset.ver === 'live' ? null : Number(b.dataset.ver); W.last = ''; refreshWatch(); renderWatchHistory(); };
   });
@@ -301,12 +310,13 @@ const RESET_PARTS = [
   ['history', 'History of program versions'],
   ['notes', 'Comments on their blocks'],
 ];
-function resetStudentsDialog(ids) {
+// preset: the boxes checked at first (all of them when not given).
+function resetStudentsDialog(ids, preset = null) {
   const names = ids.map((id) => studentLabel(byId(id) || { name: id })).join(', ');
   openModal(`<h2>↺ Reset ${ids.length > 1 ? ids.length + ' students' : esc(names)}</h2>
     ${ids.length > 1 ? `<p class="muted">${esc(names)}</p>` : ''}
     <p>What do you want to clear?</p>
-    <div class="reset-parts">${RESET_PARTS.map(([k, label]) => `<label><input type="checkbox" value="${k}" checked> ${esc(label)}</label>`).join('')}</div>
+    <div class="reset-parts">${RESET_PARTS.map(([k, label]) => `<label><input type="checkbox" value="${k}"${!preset || preset.includes(k) ? ' checked' : ''}> ${esc(label)}</label>`).join('')}</div>
     <p class="muted">The student keeps their name and class. A copy of the current work is kept in the daily backups (Manage). Exam results are kept. If the student is connected, their screen reloads with the cleared work.</p>
     <div class="actions" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button><button class="danger" id="resetGo">↺ Reset</button></div>`);
   $('resetGo').onclick = async () => {
@@ -451,6 +461,8 @@ function setupClassroomTeacher() {
   $('liveRows').addEventListener('click', (e) => {
     const b = e.target.closest('[data-ctl]');
     if (b) { e.stopPropagation(); classCommand(b); }
+    const r = e.target.closest('[data-reset]');
+    if (r) resetStudentsDialog([T.live[Number(r.dataset.reset)].studentId], ['history']);
   });
   $('btnExams').onclick = () => examsList().catch((e) => alert(e.message));
   document.querySelector('[data-tab="manageTab"]').addEventListener('click', () => { if (!$('liveArea').hidden) renderManageExtras(); });
