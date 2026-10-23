@@ -237,7 +237,7 @@ const Sync = {
   async find(name, className) {
     if (!this.online) return [];
     try {
-      const r = await fetch(`api/work/find?name=${encodeURIComponent(name)}`, { cache: 'no-store' });
+      const r = await fetch(`api/work/find?name=${encodeURIComponent(name)}&className=${encodeURIComponent(className || '')}`, { cache: 'no-store' });
       const d = await r.json();
       return d.matches || [];
     } catch (e) { return []; }

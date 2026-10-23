@@ -252,7 +252,7 @@ button.pressed { background: #2f3337 !important; color: #fff; }
 button.link { border: none; background: none; text-decoration: underline; color: var(--muted); }
 
 .welcome { position: fixed; inset: 0; z-index: 900; background: linear-gradient(135deg, #e9f2ff, #fdf0fa); display: flex; align-items: center; justify-content: center; padding: 20px; }
-.welcome-card { background: #fff; border-radius: 22px; box-shadow: 0 20px 60px rgba(30, 60, 120, 0.18); padding: 28px 34px; width: 640px; max-width: 100%; display: flex; flex-direction: column; gap: 12px; }
+.welcome-card { background: #fff; border-radius: 22px; box-shadow: 0 20px 60px rgba(30, 60, 120, 0.18); padding: 28px 34px; width: 680px; max-width: 100%; max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .welcome-card h1 { margin: 6px 0 0; font-size: 30px; }
 .brand.big { font-size: 20px; }
 .wfields { display: flex; gap: 12px; }
@@ -377,3 +377,27 @@ body.bigfield #simWrap { height: 46vh; min-height: 330px; }
 
 /* Teacher dashboard: one header row per class */
 table.cls tr.grp td { background: #eef3fb; font-weight: 700; color: #1f3b63; padding: 7px 10px; border-top: 2px solid #c9d6ea; }
+
+/* Live class: presence dot, absent students, space between classes */
+.pres { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+.pres.on { background: #2ea043; box-shadow: 0 0 0 3px rgba(46, 160, 67, 0.2); }
+.pres.off { background: #c4cad1; }
+.pres.never { border: 2px solid #c4cad1; width: 6px; height: 6px; }
+table.cls tr.absent td { color: #9aa3ad; }
+table.cls tr.absent b { font-weight: 600; color: #8a939d; }
+table.cls tr.grp-gap td { height: 18px; background: transparent; border: none; padding: 0; }
+table.cls tr.grp td { font-size: 15px; }
+.grp-count { margin-left: 8px; font-size: 12px; font-weight: 700; color: #8a939d; background: #fff; border-radius: 10px; padding: 2px 8px; }
+.grp-count.on { color: #2ea043; }
+
+/* Welcome: class, then name */
+.wclasses { display: flex; gap: 10px; flex-wrap: wrap; }
+.wclass { font-size: 20px; font-weight: 800; padding: 12px 22px; border-radius: 14px; border: 2px solid var(--border); background: #fff; }
+.wclass:hover { border-color: var(--blue); background: #f2f7ff; }
+.wclass.on { background: var(--blue, #3d8cf5); border-color: var(--blue, #3d8cf5); color: #fff; }
+.wnames { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; max-height: 260px; overflow-y: auto; padding: 2px; }
+.wname { font-size: 16px; font-weight: 700; padding: 11px 10px; border-radius: 12px; border: 2px solid var(--border); background: #fff; text-align: center; }
+.wname:hover { border-color: var(--blue); background: #f2f7ff; }
+.wme { font-size: 20px; background: #f2f7ff; border-radius: 14px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.wme .link { font-size: 13px; }
+.wait { opacity: 0.35; pointer-events: none; }

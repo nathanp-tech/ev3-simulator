@@ -132,7 +132,32 @@ function showWelcome() {
   } else {
     btn.hidden = true;
   }
-  setTimeout(() => $('wName').focus(), 50);
+  pickClass('');
+}
+
+// ---------- Welcome: the student chooses their class, then their name (js/roster.js) ----------
+const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+function pickClass(cls) {
+  $('wClass').value = cls;
+  $('wName').value = '';
+  $('wClasses').innerHTML = Object.keys(ROSTER).map((c) => `<button class="wclass${c === cls ? ' on' : ''}" data-class="${esc(c)}">${esc(c)}</button>`).join('');
+  $('wClasses').querySelectorAll('[data-class]').forEach((b) => { b.onclick = () => pickClass(b.dataset.class); });
+  $('wNameStep').hidden = !cls;
+  $('wNames').innerHTML = cls ? ROSTER[cls].slice().sort(byName).map((n) => `<button class="wname" data-name="${esc(n)}">${esc(n)}</button>`).join('') : '';
+  $('wNames').querySelectorAll('[data-name]').forEach((b) => { b.onclick = () => pickName(b.dataset.name); });
+  $('wPick').hidden = false;
+  $('wMe').hidden = true;
+  $('wChoices').classList.add('wait');
+  $('wModeTitle').classList.add('wait');
+}
+function pickName(name) {
+  $('wName').value = name;
+  $('wError').textContent = '';
+  $('wPick').hidden = true;
+  $('wMeText').innerHTML = `Hi <b>${esc(name)}</b> (${esc($('wClass').value)})! 👋`;
+  $('wMe').hidden = false;
+  $('wChoices').classList.remove('wait');
+  $('wModeTitle').classList.remove('wait');
 }
 
 // The teacher changed this student's work in the dashboard: reload it from the server.
@@ -157,7 +182,7 @@ function onDeleted() {
   Progress.data = null;
   closeModal();
   showWelcome();
-  $('wError').textContent = 'Your teacher reset your work. Type your first name to start again.';
+  $('wError').textContent = 'Your teacher reset your work. Choose your name to start again.';
 }
 
 function applyClassSettings() {
@@ -177,37 +202,21 @@ function startSession(data, { quiet = false } = {}) {
   log(`Welcome ${data.name}!`);
 }
 
-// Suggests the first names already used while the student types: one click to continue.
-let namesTimer = null;
-function updateNameSuggestions() {
-  clearTimeout(namesTimer);
-  namesTimer = setTimeout(async () => {
-    const box = $('wRoster'), typed = $('wName').value.trim();
-    if (!typed) { box.hidden = true; return; }
-    if (!Sync.online) await Sync.ping();
-    let names = [];
-    try { names = (await (await fetch('api/names?prefix=' + encodeURIComponent(typed), { cache: 'no-store' })).json()).names || []; } catch (e) { /* offline */ }
-    if (!names.length) { box.hidden = true; return; }
-    box.innerHTML = `<div class="muted">Already started: click your name to continue.</div>
-      <div class="chips">${names.map((n, i) => `<button class="chip" data-name="${i}">${esc(n.name)} <span>${n.mode === 'free' ? '🛠️' : n.validated + '/' + CHALLENGES.length}</span></button>`).join('')}</div>`;
-    box.hidden = false;
-    box.querySelectorAll('[data-name]').forEach((b) => {
-      b.onclick = () => {
-        const n = names[Number(b.dataset.name)];
-        $('wName').value = n.name;
-        chooseMode(n.mode === 'free' ? 'free' : 'guided');
-      };
-    });
-  }, 250);
-}
-
-// The first name is the only identifier: one first name = one student.
+// A student = class + name (from the class lists). Their saved work is found and reopened directly.
 async function chooseMode(mode) {
   const name = $('wName').value.trim(), cls = $('wClass').value.trim();
-  if (!name) { $('wError').textContent = 'Type your first name first.'; $('wName').focus(); return; }
+  if (!name) { $('wError').textContent = 'Choose your class and your name first.'; return; }
   if (!Sync.online) await Sync.ping();
-  const matches = await Sync.find(name);
+  const matches = await Sync.find(name, cls);
   if (!matches.length) { startSession(Progress.create(name, cls, mode)); return; }
+  try {
+    const data = await Sync.fetchWork(matches[0].studentId); // the most recent one
+    data.mode = mode;
+    if (cls) data.className = cls;
+    startSession(Progress.load(data));
+    toast(`👋 Welcome back, ${data.name}! Your work is here.`);
+    return;
+  } catch (e) { /* fall back to the list below */ }
   const ago = (t) => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : new Date(t).toLocaleDateString(); };
   openModal(`<h2>Welcome back, ${esc(matches[0].name)}! 👋</h2>
     <p>We found your saved work.</p>
@@ -1099,8 +1108,7 @@ function init() {
 
   // Welcome screen
   document.querySelectorAll('.choice').forEach((b) => { b.onclick = () => chooseMode(b.dataset.mode); });
-  $('wName').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
-  $('wName').addEventListener('input', updateNameSuggestions);
+  $('wChange').onclick = () => pickClass($('wClass').value);
   $('wOpen').onclick = () => $('wFile').click();
   $('wFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openWorkFile(f); };
 

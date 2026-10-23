@@ -22,7 +22,7 @@ from urllib.parse import unquote_plus
 P = 'ev3:'
 DEFAULT_SETTINGS = {'passScore': 80, 'saveReminderMinutes': 20, 'allowGuided': True, 'allowFree': True, 'allowFLL': True}
 # Online, the browsers talk to the server less often than in class on the local server (database quotas).
-HOSTED_SYNC = {'syncPushSeconds': 8, 'syncHeartbeatSeconds': 30, 'syncPollSeconds': 10}
+HOSTED_SYNC = {'syncPushSeconds': 8, 'syncHeartbeatSeconds': 20, 'syncPollSeconds': 10}
 ID = re.compile(r'[\w-]{4,64}')
 
 
@@ -174,9 +174,10 @@ class handler(BaseHTTPRequestHandler):
         if path in ('/api/work/find', '/api/names'):
             snaps = [s for s in hash_dict(redis(['HGETALL', P + 'snap'])[0]).values() if s]
             if path == '/api/work/find':
-                # The first name is the only identifier (accents, case and spaces ignored).
-                name = norm(params.get('name', ''))
-                found = sorted((s for s in snaps if norm(s.get('name')) == name), key=lambda s: s.get('updatedAt', ''), reverse=True)
+                # A student = class + first name (accents, case and spaces ignored). Old work without a class still matches.
+                name, cls = norm(params.get('name', '')), norm(params.get('className', ''))
+                found = sorted((s for s in snaps if norm(s.get('name')) == name and (not cls or norm(s.get('className')) in ('', cls))),
+                               key=lambda s: s.get('updatedAt', ''), reverse=True)
                 return self._json({'matches': [{'studentId': s['studentId'], 'name': s.get('name'), 'className': s.get('className'), 'mode': s.get('mode'),
                                                 'updatedAt': s.get('updatedAt'), 'current': s.get('current'), 'validated': validated_count(s)} for s in found]})
             prefix = norm(params.get('prefix', ''))

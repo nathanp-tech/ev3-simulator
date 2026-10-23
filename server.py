@@ -237,10 +237,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             with lock:
                 return self._json({'students': list(students.values()), 'now': time.time()})
         if path == '/api/work/find':
-            # The first name is the only identifier (accents, case and spaces ignored).
-            name = norm(params.get('name', ''))
+            # A student = class + first name (accents, case and spaces ignored). Old work without a class still matches.
+            name, cls = norm(params.get('name', '')), norm(params.get('className', ''))
             with lock:
-                found = [s for s in students.values() if norm(s.get('name')) == name and os.path.exists(work_path(s['studentId']))]
+                found = [s for s in students.values() if norm(s.get('name')) == name and (not cls or norm(s.get('className')) in ('', cls))
+                         and os.path.exists(work_path(s['studentId']))]
             found.sort(key=lambda s: s.get('updatedAt', ''), reverse=True)
             return self._json({'matches': [{
                 'studentId': s['studentId'], 'name': s.get('name'), 'className': s.get('className'), 'mode': s.get('mode'),

@@ -155,18 +155,23 @@
     <div class="welcome-card">
       <div class="brand big"><span class="logo">EV3</span><span>Simulator</span></div>
       <h1>Hello! 👋</h1>
-      <div class="wfields">
-        <label>Your first name <input id="wName" autocomplete="off" placeholder="e.g. Lea"></label>
-        <input id="wClass" type="hidden" value="">
+      <input id="wName" type="hidden" value=""><input id="wClass" type="hidden" value="">
+      <div id="wPick">
+        <p class="wq">1. Your class</p>
+        <div id="wClasses" class="wclasses"></div>
+        <div id="wNameStep" hidden>
+          <p class="wq">2. Your name</p>
+          <div id="wNames" class="wnames"></div>
+        </div>
       </div>
-      <div id="wRoster" class="roster" hidden></div>
-      <p class="wq">What do you want to do?</p>
-      <div class="choices">
+      <div id="wMe" class="wme" hidden><span id="wMeText"></span> <button id="wChange" class="link">Not you? Change</button></div>
+      <p class="wq" id="wModeTitle">What do you want to do?</p>
+      <div class="choices" id="wChoices">
         <button class="choice guided" data-mode="guided"><span class="cicon">🧭</span><b>Guided challenges</b><span>Step-by-step challenges. Pass one and the next one unlocks.</span></button>
         <button class="choice free" data-mode="free"><span class="cicon">🛠️</span><b>Free programming</b><span>Build and test any program you like on different mats.</span></button>
         <button class="choice fll" data-mode="fll"><span class="cicon">🏆</span><b>FIRST LEGO League</b><span>Practice the BIOGLOW robot game (2026-27): 15 missions, 2:30 matches, official scoring.</span></button>
       </div>
-      <p class="muted wsave">☁️ Your work is saved automatically. Your first name is your key: next time, type the same first name to continue.</p>
+      <p class="muted wsave">☁️ Your work is saved automatically. Next time, choose your class and your name again to continue.</p>
       <p id="wError" class="werr"></p>
       <div class="welcome-alt">
         <button id="wContinue" hidden></button>
@@ -200,6 +205,7 @@
   <script src="js/evaluator.js"></script>
   <script src="js/fll.js"></script>
   <script src="js/config.js"></script>
+  <script src="js/roster.js"></script>
   <script src="js/progress.js"></script>
   <script src="js/portview.js"></script>
   <script src="js/app.js"></script>

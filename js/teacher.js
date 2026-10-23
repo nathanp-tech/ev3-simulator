@@ -22,11 +22,14 @@ function dotsHtml(s, ref) {
   }).join('') + '</span>';
 }
 
+// A browser sends news at least every 15 s (class server) or 20 s (online): 45 s without news = offline.
+const ONLINE_SECONDS = 45;
+const isOnline = (s) => T.serverNow - (s.receivedAt || 0) <= ONLINE_SECONDS && !(s.live && s.live.status === 'left');
 function liveStatus(s) {
   const age = T.serverNow - (s.receivedAt || 0);
   const cur = s.challenges && s.challenges[s.current];
   if (s.live && s.live.status === 'left') return { cls: 'off', text: '👋 Left' };
-  if (age > 25) return { cls: 'off', text: `⚪ Offline (${fmtTime(age)})` };
+  if (age > ONLINE_SECONDS) return { cls: 'off', text: `⚪ Offline (${fmtTime(age)})` };
   const st = s.live && s.live.status;
   if (st === 'running') return { cls: '', text: '▶ Running a program' };
   if (st === 'evaluating') return { cls: '', text: '✅ Checking solution' };
@@ -42,7 +45,7 @@ function rowHtml(s, i, stats, source) {
   const status = source === 'live' ? liveStatus(s) : { cls: '', text: s.lastSavedAt ? new Date(s.lastSavedAt).toLocaleString() : '—' };
   const canValidate = source === 'live' && s.mode === 'guided' && cur && cur.status !== 'validated';
   return `<tr class="${status.cls === 'wait' ? 'waiting' : ''}">
-    <td><b>${esc(s.name)}</b>${s.className ? ` <span class="muted">${esc(s.className)}</span>` : ''}</td>
+    <td>${source === 'live' ? `<span class="pres ${isOnline(s) ? 'on' : 'off'}" title="${isOnline(s) ? 'Connected now' : 'Not connected now'}"></span>` : ''}<b>${esc(s.name)}</b>${s.className && source !== 'live' ? ` <span class="muted">${esc(s.className)}</span>` : ''}</td>
     <td>${modeCell}</td>
     <td>${dotsHtml(s, source + ':' + i)}<span class="muted">${a.validated} / ${CHALLENGES.length}</span></td>
     <td>${fll ? `<button class="linklike" data-dot="${source}:${i}" data-ch="fll">FLL BIOGLOW</button>${fllBest !== null ? ` <span class="muted">best ${fllBest} pts · ${s.fll.matches.length} match${s.fll.matches.length > 1 ? 'es' : ''}</span>` : ''}` : free ? '<span class="muted">free programming</span>' : esc(chShort(s.current))}</td>
@@ -119,17 +122,36 @@ function groupedHtml(items, cols) {
   return [...groups].map(([c, rows]) => `<tr class="grp"><td colspan="${cols}">🏫 ${esc(classLabel(c))} <span class="muted">· ${rows.length} student${rows.length > 1 ? 's' : ''}</span></td></tr>${rows.join('')}`).join('');
 }
 
+// Live class: every student of the class lists (js/roster.js), one block per class, connected or not.
+const nkey = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLowerCase();
 function renderLive() {
   const stats = classStats(T.live);
-  const levelOrder = { help: 0, some: 1, ok: 2 };
-  fillClassFilter($('liveClass'), T.live, 'All classes');
+  const rosterStudents = Object.entries(typeof ROSTER === 'object' ? ROSTER : {}).flatMap(([c, names]) => names.map((name) => ({ name, className: c })));
+  fillClassFilter($('liveClass'), T.live.concat(rosterStudents), 'All classes');
   const f = $('liveClass').value;
-  const order = T.live.map((s, i) => ({ s, i, w: levelOrder[analyzeStudent(s, stats).level] })).filter(({ s }) => inClassFilter(s, f)).sort((a, b) => a.w - b.w);
-  $('liveRows').innerHTML = order.length ? groupedHtml(order.map(({ s, i }) => ({ s, html: rowHtml(s, i, stats, 'live') })), 10)
-    : `<tr><td colspan="10" class="muted">${T.live.length ? 'No student in this class.' : 'No student connected yet. Students open the app from the address shown below and type their first name.'}</td></tr>`;
-  const online = T.live.filter((s) => T.serverNow - s.receivedAt <= 25 && !(s.live && s.live.status === 'left')).length;
-  const levels = T.live.map((s) => analyzeStudent(s, stats).level);
-  $('classKpis').innerHTML = `<span class="kpi"><b>${online}</b>online</span><span class="kpi"><b>${levels.filter((l) => l === 'help').length}</b>need help</span><span class="kpi"><b>${T.live.length}</b>students today</span>`;
+  const groups = new Map();
+  const group = (c) => { if (!groups.has(c)) groups.set(c, []); return groups.get(c); };
+  const used = new Set();
+  for (const r of rosterStudents) {
+    // the most recent work of this student (class + name)
+    const i = T.live.reduce((best, s, k) => (nkey(s.name) === nkey(r.name) && nkey(s.className) === nkey(r.className) && (best < 0 || (s.updatedAt || '') > (T.live[best].updatedAt || '')) ? k : best), -1);
+    if (i >= 0) used.add(i);
+    group(r.className).push(i >= 0 ? { s: T.live[i], i } : { s: r, i: -1 });
+  }
+  T.live.forEach((s, i) => { if (!used.has(i)) group(s.className || '').push({ s, i }); });
+  const order = [...groups.keys()].sort((a, b) => classRank(a) - classRank(b) || a.localeCompare(b)).filter((c) => inClassFilter({ className: c }, f));
+  let html = '', online = 0, total = 0, help = 0;
+  order.forEach((c, gi) => {
+    const rows = groups.get(c).sort((a, b) => a.s.name.localeCompare(b.s.name, undefined, { sensitivity: 'base' }));
+    const on = rows.filter((r) => r.i >= 0 && isOnline(r.s)).length;
+    online += on; total += rows.length;
+    help += rows.filter((r) => r.i >= 0 && analyzeStudent(r.s, stats).level === 'help').length;
+    html += `${gi ? '<tr class="grp-gap"><td colspan="10"></td></tr>' : ''}<tr class="grp"><td colspan="10">🏫 ${esc(classLabel(c))} <span class="grp-count${on ? ' on' : ''}">${on} / ${rows.length} connected</span></td></tr>`;
+    html += rows.map((r) => (r.i >= 0 ? rowHtml(r.s, r.i, stats, 'live')
+      : `<tr class="absent"><td><span class="pres never" title="Never connected"></span><b>${esc(r.s.name)}</b></td><td colspan="6"></td><td class="st off">○ Not connected yet</td><td></td><td></td></tr>`)).join('');
+  });
+  $('liveRows').innerHTML = html || '<tr><td colspan="10" class="muted">No student in this class.</td></tr>';
+  $('classKpis').innerHTML = `<span class="kpi"><b>${online} / ${total}</b>connected</span><span class="kpi"><b>${help}</b>need help</span>`;
 }
 
 async function validateLive(i) {
