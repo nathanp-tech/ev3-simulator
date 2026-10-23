@@ -154,8 +154,6 @@ function startExam(e) {
   App.mode = 'challenge';
   $('sandboxBar').hidden = true;
   $('fllBox').hidden = true;
-  $('btn3d').hidden = true;
-  set3d(false);
   $('challengeBox').hidden = false;
   $('btnSwitchMode').textContent = '📝 Exam';
   $('btnSwitchMode').disabled = true;

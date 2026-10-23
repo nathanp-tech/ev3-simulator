@@ -353,8 +353,6 @@ function setMode(mode, { initial = false } = {}) {
   $('sandboxBar').hidden = mode !== 'sandbox';
   $('challengeBox').hidden = mode !== 'challenge';
   $('fllBox').hidden = mode !== 'fll';
-  $('btn3d').hidden = mode !== 'fll';
-  if (mode !== 'fll') set3d(false);
   $('btnSwitchMode').textContent = MODE_LABEL[progressMode()];
   $('btnSwitchMode').title = 'Switch mode';
   if (mode === 'sandbox') {
@@ -934,7 +932,10 @@ function draw() {
   const overlay = App.mode === 'fll' && FLLUI.S ? (c) => FLL.draw(FLLUI.S, c, { showZones: FLLUI.showZones })
     : ch && ch.ch.overlay ? (c) => ch.ch.overlay(c, ch.data, ch.state) : null;
   App.view = renderScene(canvas, sim, brick, { trail: App.trail, sensors: true, overlay });
-  if (App.view3d) FLL3D.render(performance.now());
+  if (App.view3d) {
+    const hud = App.mode === 'challenge' && App.challenge ? `${App.exam ? '📝 ' : ''}${esc(App.challenge.title)} · ${sim.t.toFixed(1)} s` : App.mode === 'sandbox' ? `${esc(sim.mat.name || '')} · ${sim.t.toFixed(1)} s` : '';
+    FLL3D.render(performance.now(), { overlay, hud });
+  }
   if (App.mode === 'fll') updateFllPanel();
   $('lcdCanvas').getContext('2d').drawImage(brick.lcd.canvas, 0, 0);
   const lv = lightVisible(brick.light, sim.t);

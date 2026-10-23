@@ -1,5 +1,6 @@
-// 3D view of the FLL table. Rendering only: the simulation stays 2D and deterministic (sim + FLLUI.S),
-// this module just draws the same state in 3D and animates the models when a mission is done.
+// 3D view of the field: the FLL table (with its mission models) or any mat of the guided challenges and of
+// free programming. Rendering only: the simulation stays 2D and deterministic (sim, FLLUI.S); this module
+// draws the same state in 3D (and animates the FLL models when a mission is done).
 // World mapping: mat x (cm) -> X, mat y (cm, south = bigger) -> Z, height -> Y.
 import * as THREE from 'three';
 import { OrbitControls } from '../lib/three/OrbitControls.js';
@@ -9,6 +10,7 @@ const V = {
   root: null, S: null, upd: [], anims: {}, items: new Map(), robot: null, robotKey: '',
   pops: [], lastPts: null, badges: [], zones: null, trail: null, trailLen: -1,
   cam: 'table', camAnim: null, labels: true, last: 0, t: 0, hud: null, bar: null,
+  W: 236.2, H: 114.3, kind: null, mat: null, floor: null, obsKey: '', obsGroup: null, beacon: null,
 };
 
 // ---------- small helpers ----------
@@ -30,7 +32,7 @@ const ball = (r, c, o) => mesh(new THREE.SphereGeometry(r, 18, 12), c, o);
 function grp(...kids) { const g = new THREE.Group(); kids.forEach((k) => k && g.add(k)); return g; }
 function pos(o, x, y, z) { o.position.set(x, y, z); return o; }
 // Place an object at a mat point (world cm) with a 2D heading in degrees (local +X faces the heading).
-function at(o, x, y, deg = 0, h = 0) { o.position.set(x - FLL.W / 2, h, y - FLL.H / 2); o.rotation.y = -deg * DEG; return o; }
+function at(o, x, y, deg = 0, h = 0) { o.position.set(x - V.W / 2, h, y - V.H / 2); o.rotation.y = -deg * DEG; return o; }
 function anim(key, target, dt, rate = 3) {
   const cur = V.anims[key] === undefined ? target : V.anims[key];
   return (V.anims[key] = cur + (target - cur) * Math.min(1, dt * rate));
@@ -89,7 +91,7 @@ function init(wrap) {
   // HUD and camera buttons
   V.hud = document.createElement('div'); V.hud.className = 'hud3d'; wrap.appendChild(V.hud);
   V.bar = document.createElement('div'); V.bar.className = 'bar3d';
-  V.bar.innerHTML = '<button data-cam="table" title="View the whole table">Table</button><button data-cam="robot" title="Camera follows the robot">Follow robot</button><button data-cam="top" title="View from above">Top</button><label title="Show the mission numbers"><input type="checkbox" checked> Labels</label>';
+  V.bar.innerHTML = '<button data-cam="table" title="View the whole table">Table</button><button data-cam="robot" title="Camera follows the robot">Follow robot</button><button data-cam="top" title="View from above">Top</button><label title="Show the mission numbers" class="fll-only"><input type="checkbox" checked> Labels</label>';
   wrap.appendChild(V.bar);
   V.bar.querySelectorAll('[data-cam]').forEach((b) => { b.onclick = () => setCam(b.dataset.cam); });
   V.bar.querySelector('input').onchange = (e) => { V.labels = e.target.checked; };
@@ -99,25 +101,34 @@ function setCam(mode) {
   V.cam = mode;
   V.bar.querySelectorAll('[data-cam]').forEach((b) => b.classList.toggle('on', b.dataset.cam === mode));
   V.controls.enabled = mode !== 'robot';
-  if (mode === 'table') V.camAnim = { p: new THREE.Vector3(0, 128, 128), t: new THREE.Vector3(0, -6, 4) };
-  if (mode === 'top') V.camAnim = { p: new THREE.Vector3(0, 300, 1), t: new THREE.Vector3(0, 0, 0) };
+  // presets made for the FLL table (236 x 114 cm), scaled to the size of the current field
+  const k = Math.max(0.55, V.W / 236, V.H / 114);
+  if (mode === 'table') V.camAnim = { p: new THREE.Vector3(0, 128 * k, 128 * k), t: new THREE.Vector3(0, -6, 4 * k) };
+  if (mode === 'top') V.camAnim = { p: new THREE.Vector3(0, 300 * k, 1), t: new THREE.Vector3(0, 0, 0) };
 }
 
 function buildTable() {
-  const W = FLL.W, H = FLL.H, g = new THREE.Group();
+  const W = V.W, H = V.H, g = new THREE.Group();
   // mat texture (drawn at higher resolution than the simulator's sampled mat)
-  const k = 8, c = document.createElement('canvas');
+  const k = V.kind === 'fll' ? 8 : 6, c = document.createElement('canvas');
   c.width = Math.round(W * k); c.height = Math.round(H * k);
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
   ctx.scale(k, k);
-  FLL.mat.draw(ctx);
+  (V.kind === 'fll' ? FLL.mat : V.mat).draw(ctx);
   const S = V.S;
-  for (const [a, col] of [[S.platform, 'rgba(139,195,74,0.6)'], [S.station, 'rgba(121,85,72,0.6)']]) {
-    if (!a) continue;
-    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(...a[0]); a.slice(1).forEach((q) => ctx.lineTo(...q)); ctx.closePath(); ctx.fill();
+  if (V.kind === 'fll') {
+    for (const [a, col] of [[S.platform, 'rgba(139,195,74,0.6)'], [S.station, 'rgba(121,85,72,0.6)']]) {
+      if (!a) continue;
+      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(...a[0]); a.slice(1).forEach((q) => ctx.lineTo(...q)); ctx.closePath(); ctx.fill();
+    }
   }
+  // challenge zones (FINISH, targets…) are drawn on top of a copy of the mat at every frame
+  const base = document.createElement('canvas');
+  base.width = c.width; base.height = c.height;
+  base.getContext('2d').drawImage(c, 0, 0);
   const tex = new THREE.CanvasTexture(c);
+  V.floor = { c, ctx, base, k, tex };
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = V.renderer.capabilities.getMaxAnisotropy();
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, H).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
@@ -210,7 +221,7 @@ function buildModels() {
   for (const [x, y, z, r] of [[0, 28, -1, 8], [-6, 23, 1, 5.5], [6.5, 24, -2, 6], [1, 32, 1, 5]]) tree.add(pos(ball(r, '#2e7d32'), x, y, z));
   tree.add(pos(box(16, 1, 1, '#5d4037'), 0, 19, 5.5));
   R.add(tree);
-  const sx = (x) => wx(x) - FLL.W / 2, sz = 12.5 - FLL.H / 2;
+  const sx = (x) => wx(x) - V.W / 2, sz = 12.5 - V.H / 2;
   const vine = mesh(new THREE.CylinderGeometry(0.35, 0.35, 1, 8).translate(0, -0.5, 0), '#43a047');
   pos(vine, sx(51.6), 19, sz);
   const cam = grp(box(1.6, 2.2, 1.4, '#3e2723'), pos(cyl(0.45, 0.45, 0.5, '#111'), 0, 1.2, 0.9).rotateX(Math.PI / 2));
@@ -435,7 +446,7 @@ function buildBadges() {
 function buildZones() {
   const g = new THREE.Group();
   for (const z of V.S.zones) {
-    const shape = new THREE.Shape(z.poly.map(([x, y]) => new THREE.Vector2(x - FLL.W / 2, -(y - FLL.H / 2))));
+    const shape = new THREE.Shape(z.poly.map(([x, y]) => new THREE.Vector2(x - V.W / 2, -(y - V.H / 2))));
     const m = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: z.kind === 'arm' ? '#ffc107' : '#03a9f4', transparent: true, opacity: 0.45, depthWrite: false }));
     m.position.y = 0.12;
     g.add(m);
@@ -444,11 +455,11 @@ function buildZones() {
 }
 function syncTrail() {
   const n = App.trail ? sim.trail.length : 0;
-  if (n === V.trailLen) { if (V.trail && n) { const p = V.trail.geometry.attributes.position; p.setXYZ(n, sim.robot.x - FLL.W / 2, 0.25, sim.robot.y - FLL.H / 2); p.needsUpdate = true; } return; }
+  if (n === V.trailLen) { if (V.trail && n) { const p = V.trail.geometry.attributes.position; p.setXYZ(n, sim.robot.x - V.W / 2, 0.25, sim.robot.y - V.H / 2); p.needsUpdate = true; } return; }
   V.trailLen = n;
   if (V.trail) { V.scene.remove(V.trail); V.trail.geometry.dispose(); V.trail = null; }
   if (n < 2) return;
-  const pts = sim.trail.concat([[sim.robot.x, sim.robot.y]]).map(([x, y]) => new THREE.Vector3(x - FLL.W / 2, 0.25, y - FLL.H / 2));
+  const pts = sim.trail.concat([[sim.robot.x, sim.robot.y]]).map(([x, y]) => new THREE.Vector3(x - V.W / 2, 0.25, y - V.H / 2));
   V.trail = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: '#3d8cf5' }));
   V.scene.add(V.trail);
 }
@@ -458,7 +469,7 @@ function checkPops(dt) {
   if (V.lastPts) {
     sc.rows.forEach((r, i) => {
       if (pts[i] > V.lastPts[i]) {
-        const b = V.badges.find((x) => x.n === r.n) || { x: FLL.W / 2, y: FLL.H / 2 };
+        const b = V.badges.find((x) => x.n === r.n) || { x: V.W / 2, y: V.H / 2 };
         const s = textSprite([`+${pts[i] - V.lastPts[i]}`, `M${String(r.n).padStart(2, '0')} ${r.name}`], { bg: 'rgba(46,160,67,0.92)', w: 512, h: 160, font: 'bold 72px sans-serif' });
         s.scale.set(26, 8.1, 1);
         at(s, b.x, b.y, 0, (LABEL_H[r.n] || 13) + 4);
@@ -489,11 +500,51 @@ function rebuild() {
   if (V.root) { V.scene.remove(V.root); disposeTree(V.root); }
   for (const p of V.pops) V.scene.remove(p.s, p.ring);
   V.root = new THREE.Group(); V.scene.add(V.root);
-  V.upd = []; V.anims = {}; V.items = new Map(); V.pops = []; V.lastPts = null;
+  V.upd = []; V.anims = {}; V.items = new Map(); V.pops = []; V.lastPts = null; V.badges = []; V.zones = null;
+  V.obsGroup = null; V.obsKey = ''; V.beacon = null;
+  if (V.kind === 'fll') { V.W = FLL.W; V.H = FLL.H; } else { V.W = V.mat.w; V.H = V.mat.h; }
+  V.trailLen = -1;
   V.root.add(buildTable());
-  buildModels();
-  buildBadges();
-  buildZones();
+  if (V.kind === 'fll') {
+    buildModels();
+    buildBadges();
+    buildZones();
+  }
+  setCam(V.cam === 'robot' ? 'robot' : V.cam === 'top' ? 'top' : 'table');
+}
+
+// ---------- mats of the challenges and of free programming: walls, boxes, beacon ----------
+function syncObstacles() {
+  const obs = (sim.obstacles || []).filter((o) => !o.hidden);
+  const key = obs.map((o) => o.poly.map((q) => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(';') + (o.color || '')).join('|');
+  if (key !== V.obsKey) {
+    V.obsKey = key;
+    if (V.obsGroup) { V.root.remove(V.obsGroup); disposeTree(V.obsGroup); }
+    V.obsGroup = new THREE.Group();
+    for (const o of obs) {
+      const shape = new THREE.Shape(o.poly.map(([x, y]) => new THREE.Vector2(x - V.W / 2, -(y - V.H / 2))));
+      const h = o.movable ? 9 : 12;
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false }).rotateX(-Math.PI / 2);
+      V.obsGroup.add(mesh(geo, o.color || '#c8a46a'));
+    }
+    V.root.add(V.obsGroup);
+  }
+  if (sim.beacon) {
+    if (!V.beacon) {
+      V.beacon = grp(box(8, 10, 12, '#d9dde1'), pos(box(6.2, 0.6, 3, '#c0392b', { emissive: '#c0392b', emissiveIntensity: 0.6 }), 0, 10, -3));
+      V.root.add(V.beacon);
+    }
+    at(V.beacon, sim.beacon.x, sim.beacon.y);
+  } else if (V.beacon) { V.root.remove(V.beacon); disposeTree(V.beacon); V.beacon = null; }
+}
+function drawFloorOverlay(overlay) {
+  const f = V.floor;
+  if (!f || !overlay) return;
+  f.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  f.ctx.drawImage(f.base, 0, 0);
+  f.ctx.setTransform(f.k, 0, 0, f.k, 0, 0);
+  try { overlay(f.ctx); } catch (e) { /* a drawing problem must not stop the 3D view */ }
+  f.tex.needsUpdate = true;
 }
 
 // ---------- public API (used by app.js) ----------
@@ -511,9 +562,16 @@ window.FLL3D = {
     V.on = false;
     if (V.renderer) { V.renderer.domElement.hidden = true; V.hud.hidden = true; V.bar.hidden = true; }
   },
-  render(now) {
-    if (!V.on || !FLLUI.S) return;
-    if (V.S !== FLLUI.S) { V.S = FLLUI.S; rebuild(); }
+  // opts.overlay: the 2D drawing of the challenge zones (cm coordinates); opts.hud: text shown at the top left.
+  render(now, opts = {}) {
+    if (!V.on || !sim.mat) return;
+    const fll = App.mode === 'fll' && !!FLLUI.S;
+    if (fll ? V.kind !== 'fll' || V.S !== FLLUI.S : V.kind !== 'mat' || V.mat !== sim.mat) {
+      V.kind = fll ? 'fll' : 'mat';
+      V.S = fll ? FLLUI.S : null;
+      V.mat = fll ? null : sim.mat;
+      rebuild();
+    }
     const dt = V.last ? Math.min(0.1, (now - V.last) / 1000) : 0;
     V.last = now; V.t += dt;
     const w = V.wrap.clientWidth, h = V.wrap.clientHeight;
@@ -523,16 +581,23 @@ window.FLL3D = {
       V.camera.aspect = w / Math.max(1, h); V.camera.updateProjectionMatrix();
     }
     for (const u of V.upd) u(dt);
-    syncItems();
+    let sc = null;
+    if (V.kind === 'fll') {
+      syncItems();
+      V.zones.visible = FLLUI.showZones;
+      for (const b of V.badges) b.s.visible = V.labels;
+      sc = checkPops(dt);
+    } else {
+      syncObstacles();
+      drawFloorOverlay(opts.overlay);
+    }
     syncRobot();
     syncTrail();
-    V.zones.visible = FLLUI.showZones;
-    for (const b of V.badges) b.s.visible = V.labels;
-    const sc = checkPops(dt);
+    V.bar.querySelector('.fll-only').style.display = V.kind === 'fll' ? '' : 'none';
     // camera
     const C = V.camera, ctl = V.controls;
     if (V.cam === 'robot') {
-      const th = sim.robot.th, rx = sim.robot.x - FLL.W / 2, rz = sim.robot.y - FLL.H / 2;
+      const th = sim.robot.th, rx = sim.robot.x - V.W / 2, rz = sim.robot.y - V.H / 2;
       const want = new THREE.Vector3(rx - Math.cos(th) * 45, 32, rz - Math.sin(th) * 45);
       C.position.lerp(want, Math.min(1, dt * 3));
       ctl.target.lerp(new THREE.Vector3(rx + Math.cos(th) * 18, 2, rz + Math.sin(th) * 18), Math.min(1, dt * 4));
@@ -545,7 +610,7 @@ window.FLL3D = {
       }
       ctl.update();
     }
-    V.hud.innerHTML = `<b>${fmt(FLL.MATCH_TIME - V.S.clock)}</b> · ${sc.total} pts${V.S.ended ? ' · match over' : ''}`;
+    V.hud.innerHTML = sc ? `<b>${fmt(FLL.MATCH_TIME - V.S.clock)}</b> · ${sc.total} pts${V.S.ended ? ' · match over' : ''}` : (opts.hud || '');
     V.renderer.render(V.scene, C);
   },
   // Mouse position -> mat point (cm) on a plane a little above the mat, for dragging the robot in home.
@@ -555,11 +620,11 @@ window.FLL3D = {
     ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), V.camera);
     const p = new THREE.Vector3();
     if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -4), p)) return [-1e3, -1e3];
-    return [p.x + FLL.W / 2, p.z + FLL.H / 2];
+    return [p.x + V.W / 2, p.z + V.H / 2];
   },
   get canvas() { return V.renderer && V.renderer.domElement; },
   setCam,
   get debug() { return { pops: V.pops.length, items: V.items.size, cam: V.cam }; },
   // for tests: look at a mat point (cm) from a given offset
-  look(x, y, dx = 0, dh = 40, dz = 45) { V.cam = 'free'; V.camAnim = { p: new THREE.Vector3(x - FLL.W / 2 + dx, dh, y - FLL.H / 2 + dz), t: new THREE.Vector3(x - FLL.W / 2, 2, y - FLL.H / 2) }; },
+  look(x, y, dx = 0, dh = 40, dz = 45) { V.cam = 'free'; V.camAnim = { p: new THREE.Vector3(x - V.W / 2 + dx, dh, y - V.H / 2 + dz), t: new THREE.Vector3(x - V.W / 2, 2, y - V.H / 2) }; },
 };

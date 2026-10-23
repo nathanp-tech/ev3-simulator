@@ -68,7 +68,7 @@ A third mode on the welcome screen, **🏆 FIRST LEGO League**, lets students pr
   - Avoid the fragile habitats.
   - M06: push the ant slowly, or the leaves scatter.
   - M07: the connection bonus needs an opposing team, so it cannot be scored here.
-- **3D view (🧊 3D button in the simulator toolbar, FLL mode only):**
+- **3D view (🧊 3D button in the simulator toolbar, in every mode: guided challenges, free programming and FLL):**
   - Same match, drawn in 3D: the models move when a mission is done (drone takes off, rock flips, vine drops, cover falls, building parts open…).
   - A green "+points" label rises above each mission when it scores.
   - Cameras: **Table**, **Follow robot**, **Top**; drag to turn, scroll to zoom. The robot can still be dragged inside home.
