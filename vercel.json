@@ -6,7 +6,8 @@
   ],
   "functions": {
     "api/index.py": {
-      "maxDuration": 15
+      "maxDuration": 20,
+      "includeFiles": "api/_core.py"
     }
   },
   "rewrites": [
@@ -24,6 +25,12 @@
           "value": "no-cache"
         }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/backup",
+      "schedule": "0 3 * * *"
     }
   ]
 }

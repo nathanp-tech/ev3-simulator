@@ -1,0 +1,273 @@
+// Classroom features of the student app: class lists, help request, teacher comments on blocks,
+// live class commands (message, pause, closed access), exams and program history.
+'use strict';
+
+const CR = {
+  roster: null, classStatus: {},
+  helpSince: 0,
+  notes: [], applied: [], toasted: new Set(LS.get(STORAGE + 'notesSeen', [])),
+  seenMsg: LS.get(STORAGE + 'seenMsg', ''),
+  exam: null, examCh: null, examOver: false,
+  lastVersion: {},
+};
+
+// ---------- Class lists (edited by the teacher in the dashboard; js/roster.js is the default) ----------
+const currentRoster = () => CR.roster || ROSTER;
+async function loadRoster() {
+  const [r, c] = await Promise.all([Sync.getJson('api/roster'), Sync.getJson('api/classctl')]);
+  CR.roster = r && r.roster && Object.keys(r.roster).length ? r.roster : null;
+  CR.classStatus = (c && c.classes) || {};
+}
+const classClosed = (cls) => !!(CR.classStatus[cls] && CR.classStatus[cls].closed);
+
+// ---------- Where the student is (for the teacher) ----------
+function whereText() {
+  if (App.exam) return `📝 Exam · ${chTitle(App.examCh)}`;
+  if (App.mode === 'challenge' && App.challenge) return `Challenge ${CHALLENGES.indexOf(App.challenge) + 1}: ${chTitle(App.challenge.id)}`;
+  return App.mode === 'fll' ? 'FIRST LEGO League' : 'Free programming';
+}
+const chTitle = (id) => { const c = CHALLENGES.find((x) => x.id === id); return c ? c.title.replace(/^\d+\.\s*/, '') : id; };
+const currentSlotId = () => (App.exam ? `${App.exam.id}-${App.examCh}` : App.mode === 'challenge' && App.challenge ? App.challenge.id : App.mode === 'fll' ? 'fll' : 'free');
+
+// ---------- 🙋 Help request ----------
+function renderHelpButton() {
+  const b = $('btnHelpMe');
+  b.classList.toggle('waiting', !!CR.helpSince);
+  b.textContent = CR.helpSince ? '🙋 Help requested · cancel' : '🙋 I need help';
+  b.title = CR.helpSince ? 'Your teacher has your request. Click to cancel it.' : 'Ask your teacher for help';
+}
+async function toggleHelp() {
+  if (!Progress.data) return;
+  if (!Sync.online) { toast('Not connected to the class server: raise your hand 🙂'); return; }
+  if (CR.helpSince) {
+    CR.helpSince = 0;
+    renderHelpButton();
+    await Sync.post('api/help', { studentId: Progress.data.studentId, on: false });
+    return;
+  }
+  const r = await Sync.post('api/help', { studentId: Progress.data.studentId, on: true, name: Progress.data.name, className: Progress.data.className, where: whereText() });
+  if (!r) { toast('Could not reach your teacher: raise your hand 🙂'); return; }
+  CR.helpSince = r.since;
+  Progress.log('help', App.mode === 'challenge' && App.challenge ? App.challenge.id : null);
+  renderHelpButton();
+  toast('🙋 Your teacher got your request. Keep trying while you wait!');
+}
+Sync.onHelpDone = (t) => {
+  if (CR.helpSince && t >= CR.helpSince - 1) {
+    CR.helpSince = 0;
+    renderHelpButton();
+    toast('👩‍🏫 Your teacher has seen your request.');
+  }
+};
+
+// ---------- 💬 Teacher comments pinned to blocks ----------
+Sync.onNotesRev = async () => {
+  if (!Progress.data) return;
+  const d = await Sync.getJson('api/notes/' + Progress.data.studentId);
+  if (!d) return;
+  CR.notes = d.notes || [];
+  const fresh = CR.notes.filter((n) => !n.done && !CR.toasted.has(n.id));
+  if (fresh.length) {
+    fresh.forEach((n) => CR.toasted.add(n.id));
+    LS.set(STORAGE + 'notesSeen', [...CR.toasted].slice(-200));
+    toast(`💬 Your teacher left ${fresh.length > 1 ? fresh.length + ' comments' : 'a comment'} on your blocks.`, 5000);
+    brick.sound.play('fx:beep');
+  }
+  applyNotes();
+};
+function applyNotes() {
+  if (!ws) return;
+  for (const { blockId, key } of CR.applied) { const b = ws.getBlockById(blockId); if (b) b.setWarningText(null, key); }
+  CR.applied = [];
+  const slot = currentSlotId();
+  const here = CR.notes.filter((n) => !n.done && n.slot === slot);
+  for (const n of here) {
+    const b = ws.getBlockById(n.blockId);
+    if (b) { b.setWarningText('👩‍🏫 ' + n.text, 'note-' + n.id); CR.applied.push({ blockId: n.blockId, key: 'note-' + n.id }); }
+  }
+  const others = App.exam ? [] : CR.notes.filter((n) => !n.done && n.slot !== slot); // no distraction during an exam
+  const box = $('notesPanel');
+  box.hidden = !here.length && !others.length;
+  box.innerHTML = `<h3>💬 Comments from your teacher</h3>${here.map((n) => `<div class="note">
+      <div class="note-text">${esc(n.text)}</div>
+      <div class="note-actions">${ws.getBlockById(n.blockId) ? `<button class="mini" data-note-show="${esc(n.id)}">Show the block</button>` : '<span class="muted">(this block was deleted)</span>'}
+      <button class="mini primary" data-note-done="${esc(n.id)}">Got it ✓</button></div></div>`).join('')}
+    ${others.length ? `<div class="muted">Also ${others.length} comment${others.length > 1 ? 's' : ''} on: ${[...new Set(others.map((n) => slotLabel(n.slot)))].map(esc).join(', ')}</div>` : ''}`;
+  box.querySelectorAll('[data-note-show]').forEach((b) => {
+    b.onclick = () => { const n = CR.notes.find((x) => x.id === b.dataset.noteShow); const blk = n && ws.getBlockById(n.blockId); if (blk) { ws.centerOnBlock(blk.id); blk.select(); } };
+  });
+  box.querySelectorAll('[data-note-done]').forEach((b) => {
+    b.onclick = async () => {
+      const r = await Sync.post('api/notes', { studentId: Progress.data.studentId, action: 'done', noteId: b.dataset.noteDone });
+      if (r) { CR.notes = r.notes; Sync.notesRev = undefined; applyNotes(); }
+    };
+  });
+}
+const slotLabel = (slot) => (slot === 'free' ? 'free programming' : slot === 'fll' ? 'FLL' : chTitle(slot));
+
+// ---------- 🎛 Live class commands: message, pause, closed access, exam ----------
+Sync.onClassCtl = (ctl) => {
+  if (!Progress.data) return;
+  const m = ctl.message;
+  if (m && m.id !== CR.seenMsg && Sync.now() / 1000 - m.at < 3 * 3600) {
+    CR.seenMsg = m.id;
+    LS.set(STORAGE + 'seenMsg', m.id);
+    openModal(`<h2>📢 Message from your teacher</h2><p class="teacher-msg">${esc(m.text)}</p><div style="text-align:right"><button class="primary" onclick="closeModal()">OK</button></div>`);
+    brick.sound.play('fx:beep');
+    log('📢 Teacher: ' + m.text, 'success');
+  }
+  if (ctl.paused && $('pauseOverlay').hidden && App.status !== 'idle') stopProgram();
+  $('pauseOverlay').hidden = !ctl.paused;
+  if (ctl.closed && $('closedOverlay').hidden && App.status !== 'idle') stopProgram();
+  $('closedOverlay').hidden = !ctl.closed;
+  handleExam(ctl.exam || null);
+};
+
+// ---------- 📝 Exams ----------
+const examLive = (e) => e && e.active && Sync.now() < e.endsAt * 1000;
+function handleExam(e) {
+  if (e && Progress.data.className && e.className !== Progress.data.className) e = null;
+  if (examLive(e)) {
+    if (!App.exam || App.exam.id !== e.id) startExam(e);
+    else App.exam = e;
+    return;
+  }
+  if (!App.exam) return;
+  if (e && e.id === App.exam.id) { if (!CR.examOver) finishExam(); } else leaveExam();
+}
+function examEntry(exam = App.exam) {
+  const all = Progress.data.exams || (Progress.data.exams = {});
+  return all[exam.id] || (all[exam.id] = { title: exam.title, className: exam.className, startedAt: exam.startedAt, slots: {} });
+}
+function examSlot(id) {
+  const slots = examEntry().slots;
+  return slots[id] || (slots[id] = { program: null, robot: null, best: null, bestProgram: null, checks: 0, hints: 0 });
+}
+function startExam(e) {
+  if (App.status === 'running') rt.stopAll('user');
+  if (App.status === 'evaluating') App.cancelEval = true;
+  if (!App.exam) storeWorkspace();
+  App.exam = e;
+  CR.examOver = false;
+  examEntry(e);
+  $('examOverlay').hidden = true;
+  App.mode = 'challenge';
+  $('sandboxBar').hidden = true;
+  $('fllBox').hidden = true;
+  $('btn3d').hidden = true;
+  set3d(false);
+  $('challengeBox').hidden = false;
+  $('btnSwitchMode').textContent = '📝 Exam';
+  $('btnSwitchMode').disabled = true;
+  App.examCh = null;
+  enterExamChallenge(examEntry(e).current || e.challenges[0], { skipStore: true });
+  updateExamBanner();
+  toast(`📝 The exam "${e.title}" has started. Good luck!`, 5000);
+  Progress.log('exam-start', null, e.id);
+  Sync.push(liveState(), true);
+}
+function enterExamChallenge(id, { skipStore = false } = {}) {
+  if (!App.exam || !App.exam.challenges.includes(id) || App.status !== 'idle') return;
+  if (!skipStore) storeWorkspace();
+  App.examCh = id;
+  examEntry().current = id;
+  loadSlot(examSlot(id));
+  selectChallenge(id, true);
+  renderExam();
+  Progress.persist();
+}
+function renderExam() {
+  const e = App.exam, ch = App.challenge, slot = examSlot(ch.id);
+  const k = e.challenges.indexOf(ch.id);
+  $('stepper').innerHTML = e.challenges.map((id, i) => {
+    const s = examSlot(id);
+    return `${i ? '<span class="step-line"></span>' : ''}<button class="step open${id === ch.id ? ' current' : ''}" data-ch="${esc(id)}" title="${esc(chTitle(id))}${s.best !== null ? ' · best ' + s.best + ' %' : ''}">${s.best !== null ? s.best + '%' : i + 1}</button>`;
+  }).join('');
+  $('challengeTitle').textContent = `📝 ${e.title} · ${k + 1} / ${e.challenges.length}: ${chTitle(ch.id)}`;
+  $('challengeMeta').textContent = `Level ${ch.level}`;
+  $('challengeDesc').innerHTML = `${ch.description}<span class="skills">Skills: ${esc(ch.skills)}</span>`;
+  const hints = e.hints ? ch.hints || [] : [];
+  $('hintBox').innerHTML = hints.slice(0, slot.hints).map((h, i) => `<div class="hint-card">💡 <b>Hint ${i + 1}:</b> ${esc(h)}</div>`).join('');
+  $('btnHint').hidden = slot.hints >= hints.length;
+  $('btnHint').textContent = `💡 Hint (${slot.hints + 1}/${hints.length})`;
+  $('btnEvaluate').hidden = CR.examOver;
+  $('validateBox').innerHTML = `<div class="exam-best">${slot.best !== null ? `Your best score for this challenge: <b>${slot.best} %</b> (${slot.checks} check${slot.checks > 1 ? 's' : ''}).` : 'Not checked yet.'}
+    <span class="muted">Only your best <b>Check my solution</b> counts. You can keep improving until the end.</span></div>`;
+  applyNotes();
+}
+function examHint() {
+  const slot = examSlot(App.challenge.id);
+  slot.hints = Math.min((App.challenge.hints || []).length, slot.hints + 1);
+  Progress.persist();
+  renderExam();
+}
+function onExamGrade(res) {
+  const id = App.challenge.id, slot = examSlot(id);
+  const program = Blockly.serialization.workspaces.save(ws), robot = JSON.parse(JSON.stringify(sim.config));
+  slot.checks++;
+  if (slot.best === null || res.score > slot.best) { slot.best = res.score; slot.bestProgram = program; }
+  Progress.log('exam-check', id, res.score);
+  Progress.persist();
+  Sync.post('api/exam/result', { studentId: Progress.data.studentId, examId: App.exam.id, challengeId: id, score: res.score, program, robot, name: Progress.data.name, className: Progress.data.className });
+  renderExam();
+  const trials = res.trials.map((t, i) => `<div class="trial"><h4><span>Trial ${i + 1}</span><span>${t.score} %</span></h4>${t.criteria.length ? criteriaHtml(t.criteria) : '<span class="muted">The program could not start.</span>'}</div>`).join('');
+  openModal(`<h2>📝 Checked</h2><div class="big-score">${res.score} %</div>
+    <p>Your best score for this challenge: <b>${slot.best} %</b>. Only your best check counts: you can keep improving until the end of the exam.</p>
+    ${trials}<div style="text-align:right"><button class="primary" onclick="closeModal()">OK</button></div>`);
+}
+function updateExamBanner() {
+  const b = $('examBanner');
+  if (!App.exam) { b.hidden = true; return; }
+  const left = Math.max(0, App.exam.endsAt * 1000 - Sync.now()) / 1000;
+  b.hidden = false;
+  b.classList.toggle('soon', left < 120 && !CR.examOver);
+  b.innerHTML = CR.examOver ? `📝 ${esc(App.exam.title)} · ⏱ finished` : `📝 <b>${esc(App.exam.title)}</b> · ⏱ <b>${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}</b> left`;
+  if (!CR.examOver && left <= 0) finishExam();
+}
+function finishExam() {
+  if (!App.exam || CR.examOver) return;
+  if (App.status === 'running') rt.stopAll('user');
+  if (App.status === 'evaluating') App.cancelEval = true;
+  storeWorkspace();
+  CR.examOver = true;
+  Progress.log('exam-end', null, App.exam.id);
+  Progress.persist();
+  Sync.push(liveState(), true);
+  closeModal();
+  const rows = App.exam.challenges.map((id) => { const s = examSlot(id); return `<tr><td>${esc(chTitle(id))}</td><td><b>${s.best !== null ? s.best + ' %' : '—'}</b></td></tr>`; }).join('');
+  $('examOverlayBody').innerHTML = `<div class="ov-icon">⏱</div><h1>The exam is over</h1><p>Your best scores:</p><table class="exam-res">${rows}</table><p class="muted">Your work is saved. Wait for your teacher.</p>`;
+  $('examOverlay').hidden = false;
+  updateExamBanner();
+}
+function leaveExam() {
+  if (!App.exam) return;
+  if (!CR.examOver) storeWorkspace();
+  App.exam = null;
+  App.examCh = null;
+  CR.examOver = false;
+  $('examOverlay').hidden = true;
+  updateExamBanner();
+  closeModal();
+  applyClassSettings();
+  setMode(appModeOf(Progress.data.mode || 'guided'), { initial: true });
+  toast('📝 The exam is closed. You are back to your normal work.');
+  Sync.push(liveState(), true);
+}
+
+// ---------- 🕓 Program history (the teacher sees each version) ----------
+function recordVersion(kind, score) {
+  if (!Progress.data || !Sync.online) return;
+  const slot = currentSlotId();
+  const program = Blockly.serialization.workspaces.save(ws);
+  const key = JSON.stringify(program);
+  if (kind === 'run' && CR.lastVersion[slot] === key) return;
+  CR.lastVersion[slot] = key;
+  Sync.post('api/history', { studentId: Progress.data.studentId, slot, kind, score: score === undefined ? null : score, program, robot: sim.config, t: new Date().toISOString() });
+}
+
+function setupClassroom() {
+  $('btnHelpMe').onclick = toggleHelp;
+  $('closedExit').onclick = () => { $('closedOverlay').hidden = true; exitSession(); };
+  setInterval(() => { if (App.exam) updateExamBanner(); }, 1000);
+  renderHelpButton();
+}

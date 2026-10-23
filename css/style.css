@@ -401,3 +401,59 @@ table.cls tr.grp td { font-size: 15px; }
 .wme { font-size: 20px; background: #f2f7ff; border-radius: 14px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .wme .link { font-size: 13px; }
 .wait { opacity: 0.35; pointer-events: none; }
+
+/* Help request, exam banner, teacher comments, overlays */
+.help-me { font-weight: 700; border-color: #f0c36d; background: #fff8e6; }
+.help-me:hover { background: #ffefc2; }
+.help-me.waiting { background: #f0a020; border-color: #f0a020; color: #fff; animation: helpPulse 1.6s ease-in-out infinite; }
+@keyframes helpPulse { 50% { box-shadow: 0 0 0 5px rgba(240, 160, 32, 0.25); } }
+.exam-banner { background: #5b3cc4; color: #fff; padding: 8px 12px; font-size: 15px; text-align: center; }
+.exam-banner.soon { background: #d9363e; }
+.exam-best { background: #f4f0ff; border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
+.notes-panel { border-left: 4px solid #f0a020; background: #fffaf0; }
+.notes-panel h3 { margin: 0 0 6px; font-size: 14px; }
+.note { background: #fff; border: 1px solid #f3dca0; border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; }
+.note-text { font-weight: 600; white-space: pre-wrap; }
+.note-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; align-items: center; }
+.overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(20, 30, 50, 0.82); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.ov-box { background: #fff; border-radius: 22px; padding: 30px 40px; text-align: center; max-width: 560px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); }
+.ov-box h1 { margin: 6px 0; }
+.ov-icon { font-size: 64px; }
+.exam-res { margin: 10px auto; border-collapse: collapse; }
+.exam-res td { padding: 5px 14px; border-bottom: 1px solid var(--border); text-align: left; }
+.teacher-msg { font-size: 18px; white-space: pre-wrap; background: #f2f7ff; border-radius: 12px; padding: 12px 14px; }
+.wclass.closed { opacity: 0.45; cursor: not-allowed; }
+
+/* Teacher: help queue, class commands, exams, history, comments, class lists, backups, database */
+.help-queue { border-left: 5px solid #f0a020; background: #fffaf0; }
+.help-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid #f3dca0; flex-wrap: wrap; }
+.help-wait { background: #f0a020; color: #fff; font-weight: 700; border-radius: 8px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+.help-badge { margin-right: 4px; animation: helpPulse 1.6s ease-in-out infinite; border-radius: 50%; }
+.grp-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.grp-ctl { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-left: auto; font-size: 12px; font-weight: 500; }
+.grp-ctl .mini.on { background: #f0a020; border-color: #f0a020; color: #fff; }
+.ctl-badge { border-radius: 10px; padding: 2px 8px; font-weight: 700; font-size: 12px; }
+.ctl-badge.warn { background: #ffe1e1; color: #b3261e; }
+.ctl-badge.exam { background: #ece6ff; color: #5b3cc4; }
+td.st.exam { color: #5b3cc4; font-weight: 600; }
+.exam-form { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+.exam-form input:not([type]) { width: 100%; font-size: 15px; padding: 6px 8px; }
+.exam-chs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; margin-top: 6px; }
+.exam-table td, .exam-table th { white-space: nowrap; }
+.grade { font-size: 15px; }
+.ok-mark { color: #2ea043; font-weight: 700; }
+.warn-mark { color: #b3261e; font-weight: 700; }
+.hist-bar { display: flex; gap: 5px; align-items: center; overflow-x: auto; padding: 6px 0 8px; white-space: nowrap; }
+.hist-chip { border-radius: 14px; padding: 3px 10px; font-size: 12px; border: 1px solid var(--border); background: #fff; flex: 0 0 auto; }
+.hist-chip.check { border-color: #9fd9a8; background: #f0fbf1; }
+.hist-chip.on { background: var(--blue, #3d8cf5); border-color: var(--blue, #3d8cf5); color: #fff; }
+.w-notes { border-top: 1px solid var(--border); padding-top: 6px; }
+.w-notes textarea, #rosterPasteText { width: 100%; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); }
+.note.done { opacity: 0.6; }
+.roster-editor { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin: 8px 0; }
+.roster-class textarea { width: 100%; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); resize: vertical; }
+.backup-list table { margin: 6px 0; }
+.gauge { height: 14px; background: #eef1f5; border-radius: 8px; overflow: hidden; }
+.gauge-fg { height: 100%; background: #2ea043; }
+.gauge-fg.warn { background: #f0a020; }
+.gauge-fg.bad { background: #d9363e; }

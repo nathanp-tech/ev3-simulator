@@ -13,6 +13,7 @@
     <button class="mode-pill" id="btnSwitchMode" title="Switch mode"></button>
     <div class="spacer"></div>
     <span class="sync" id="syncStatus" title="Connection to the teacher's dashboard"></span>
+    <button id="btnHelpMe" class="help-me" title="Ask your teacher for help">🙋 I need help</button>
     <button id="btnSaveWork" class="save-work" title="Download your work to this computer">💾 Save my work</button>
     <button id="btnHelp" class="round" title="Help">?</button>
     <button id="btnExit" title="Finish or change student">Exit</button>
@@ -37,6 +38,7 @@
     </section>
 
     <aside id="side">
+      <div id="examBanner" class="exam-banner" hidden></div>
       <div class="toolbar">
         <button id="btnRun" class="run" title="Run the program">▶ Run</button>
         <button id="btnStop" class="stop" title="Stop the program">■ Stop</button>
@@ -105,6 +107,8 @@
         <div id="fllInfo" class="fll-info"></div>
         <div id="fllSheet" class="fll-sheet"></div>
       </div>
+
+      <div id="notesPanel" class="card notes-panel" hidden></div>
 
       <div class="lower">
         <div id="brick">
@@ -183,6 +187,10 @@
     </div>
   </div>
 
+  <div id="pauseOverlay" class="overlay" hidden><div class="ov-box"><div class="ov-icon">👀</div><h1>Eyes on your teacher</h1><p>Your screen is paused for a moment.</p></div></div>
+  <div id="closedOverlay" class="overlay" hidden><div class="ov-box"><div class="ov-icon">🔒</div><h1>Your class is closed right now</h1><p>Your work is saved. You can come back when your teacher opens the class.</p><button id="closedExit" class="primary">Exit</button></div></div>
+  <div id="examOverlay" class="overlay" hidden><div class="ov-box" id="examOverlayBody"></div></div>
+
   <div id="modal" class="modal" hidden>
     <div class="modal-box">
       <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
@@ -209,6 +217,7 @@
   <script src="js/progress.js"></script>
   <script src="js/portview.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/classroom.js"></script>
   <script type="importmap">{ "imports": { "three": "./lib/three/three.module.min.js" } }</script>
   <script type="module" src="js/fll3d.js"></script>
 </body>

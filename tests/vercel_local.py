@@ -16,38 +16,10 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 REDIS_PORT = PORT + 1
 
 
-# ---------- fake Upstash Redis (REST /pipeline) ----------
-DB, EXP = {}, {}
-dblock = threading.Lock()
-
-
-def run_cmd(c):
-    op, a = c[0].upper(), c[1:]
-    if op == 'GET':
-        v = DB.get(a[0])
-        return v if isinstance(v, str) else None
-    if op == 'SET':
-        DB[a[0]] = a[1]
-        if len(a) > 3 and a[2].upper() == 'EX':
-            EXP[a[0]] = int(a[3])
-        return 'OK'
-    if op == 'MGET':
-        return [DB.get(k) if isinstance(DB.get(k), str) else None for k in a]
-    if op == 'DEL':
-        return sum(1 for k in a if DB.pop(k, None) is not None)
-    if op == 'HSET':
-        h = DB.setdefault(a[0], {})
-        for i in range(1, len(a), 2):
-            h[a[i]] = a[i + 1]
-        return 1
-    if op == 'HGET':
-        return (DB.get(a[0]) or {}).get(a[1])
-    if op == 'HGETALL':
-        return [x for kv in (DB.get(a[0]) or {}).items() for x in kv]
-    if op == 'HDEL':
-        h = DB.get(a[0]) or {}
-        return sum(1 for k in a[1:] if h.pop(k, None) is not None)
-    return {'error': 'unknown command ' + op}
+# ---------- fake Upstash Redis (REST /pipeline), using the in-memory store of api/_core.py ----------
+sys.path.insert(0, os.path.join(ROOT, 'api'))
+from _core import MemStore  # noqa: E402
+MEM = MemStore()
 
 
 class RedisHandler(http.server.BaseHTTPRequestHandler):
@@ -58,11 +30,7 @@ class RedisHandler(http.server.BaseHTTPRequestHandler):
         if self.headers.get('Authorization') != 'Bearer test-token':
             self.send_response(401); self.end_headers(); return
         cmds = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        with dblock:
-            out = []
-            for c in cmds:
-                r = run_cmd(c)
-                out.append(r if isinstance(r, dict) and 'error' in r else {'result': r})
+        out = [r if isinstance(r, dict) and 'error' in r else {'result': r} for r in MEM.run(cmds)]
         body = json.dumps(out).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')

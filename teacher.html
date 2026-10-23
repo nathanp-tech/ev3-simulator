@@ -111,10 +111,12 @@
             <span id="classKpis" class="kpis"></span>
             <span class="spacer" style="flex:1"></span>
             <label>Class <select id="liveClass"><option value="">All classes</option></select></label>
+            <button id="btnExams">📝 Exams &amp; results</button>
             <button id="btnReportLive" class="primary">📄 Difficulty report</button>
             <button id="btnCsvLive">📊 CSV</button>
           </div>
         </div>
+        <div id="helpQueue" class="panel-card help-queue" hidden></div>
         <table class="cls">
           <thead><tr><th>Student</th><th>Mode</th><th>Progress</th><th>Current challenge</th><th>Time on it</th><th>Runs</th><th>Best check</th><th>Status</th><th>Difficulty</th><th></th></tr></thead>
           <tbody id="liveRows"></tbody>
@@ -150,6 +152,15 @@
           <div class="actions"><button class="primary" id="btnSaveSettings">Save settings</button><span id="settingsMsg" class="muted"></span></div>
         </div>
         <div class="panel-card">
+          <div class="actions"><h3 style="margin:0">Class lists</h3><span class="muted" id="rosterSource"></span><span class="spacer" style="flex:1"></span>
+            <button id="rosterAddClass">+ Add a class</button><button id="rosterPasteBtn">📋 Paste from Excel</button><button class="primary" id="rosterSave">Save the class lists</button></div>
+          <p class="muted" style="margin:6px 0">Students choose their class, then their name, on the welcome page. One name per line. A student is identified by class + name: renaming here does not move existing work (use "First name" below).</p>
+          <div id="rosterPaste" hidden><textarea id="rosterPasteText" rows="6" placeholder="Paste two columns from Excel: class, then name. Example:&#10;4A	Frederik&#10;4A	Amiri&#10;4B	Sean"></textarea>
+            <div class="actions"><label><input type="checkbox" id="rosterPasteReplace"> Replace the classes found in the pasted list</label><button class="primary" id="rosterPasteGo">Add to the lists</button><button id="rosterPasteCancel">Cancel</button></div></div>
+          <div id="rosterEditor" class="roster-editor"></div>
+          <span id="rosterMsg" class="muted"></span>
+        </div>
+        <div class="panel-card">
           <div class="actions">
             <h3 style="margin:0">Students</h3>
             <label>Class <select id="mgClass"><option value="">All</option></select></label>
@@ -167,13 +178,19 @@
         </div>
         <div class="panel-card">
           <h3 style="margin-top:0">Backup and reset</h3>
+          <div class="actions"><b>Automatic daily backups</b><span class="muted">(kept 30 days)</span><span class="spacer" style="flex:1"></span><button id="btnBackupNow">💾 Make a backup now</button></div>
+          <div id="backupList" class="backup-list"></div>
           <div class="actions">
             <button id="btnBackup">💾 Download a backup of all work</button>
             <label class="btnlike">📥 Restore from a backup or work files<input type="file" id="restoreFiles" multiple accept=".json" hidden></label>
             <span class="spacer" style="flex:1"></span>
             <button id="btnResetAll" class="danger">⚠️ Reset everything (new class / new year)</button>
           </div>
-          <p class="muted" id="mgMsg">Before any reset or deletion, a copy of all data is kept in <code>data/archive/</code> on this computer.</p>
+          <p class="muted" id="mgMsg">Before any reset or deletion, a copy of all data is kept for 180 days.</p>
+        </div>
+        <div class="panel-card">
+          <h3 style="margin-top:0">Database usage</h3>
+          <div id="dbStats"></div>
         </div>
       </div>
     </section>
@@ -207,5 +224,6 @@
   <script src="js/analysis.js"></script>
   <script src="lib/qrcode/qrcode.js"></script>
   <script src="js/teacher.js"></script>
+  <script src="js/teacher-classroom.js"></script>
 </body>
 </html>

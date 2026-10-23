@@ -19,7 +19,7 @@ A web app to program a LEGO® MINDSTORMS® EV3 robot with blocks, in the style o
    - If two students have the same first name, the second one clicks "This is not me" and adds an initial ("Léa M.").
    - **💾 Save my work** also downloads a copy (`Lea_9B_EV3-work.json`). Students can reopen it with **Continue from my saved file**, e.g. if the server is off.
    - If the server cannot be reached, the header says so and a reminder asks students to download their work.
-   - Saved work is kept in `data/work/` on the teacher's computer.
+   - Saved work is kept in `data/db/` on the teacher's computer (online: in the Upstash database).
 
 ## Teacher dashboard (`teacher.html`)
 
@@ -43,7 +43,7 @@ A web app to program a LEGO® MINDSTORMS® EV3 robot with blocks, in the style o
   - **Students:** fix a first name or class, unlock challenges up to a given one, reset progress, download a student's work, delete. Works for one student or a selection.
   - **Backup:** download all work in one file, or restore from a backup or from work files.
   - **Reset everything** (new class / new year), after typing RESET.
-  - Before any deletion or reset, a copy is kept in `data/archive/`.
+  - Before any deletion or reset, a copy of everything is kept 180 days (plus the daily backups, 30 days).
   - Students who are connected see the change right away: their work is reloaded, or they go back to the welcome screen after a reset. Their browser cannot overwrite the teacher's change.
 - **Report from saved files:** drop the students' work files to get the same view and report without the server.
 
@@ -75,6 +75,24 @@ A third mode on the welcome screen, **🏆 FIRST LEGO League**, lets students pr
   - The simulation itself stays the 2D one (same results); 3D is only the picture. Uses three.js (local, offline).
 - **Teacher:** students in this mode show "🏆 FLL" with their best score. Their FLL code can be viewed and run on the BIOGLOW table. A setting can turn the mode off. FLL scores are in the CSV export.
 - **Sources:** official FIRST LEGO League Challenge 2026-27 BIOGLOW Robot Game Rulebook, Field Setup Guide and Wireframe. Always check the official Challenge Updates for rule changes.
+
+## Classroom tools (teacher dashboard)
+
+- **🙋 Help requests:** students click **I need help** (top bar). The dashboard shows a queue at the top of the live view (oldest first, with a sound for each new request) and a 🙋 next to the student. **👁 View** opens their program, **✓ Done** tells the student their teacher has seen it.
+- **Class lists:** Manage → *Class lists*: one box per class, one name per line, **+ Add a class**, **📋 Paste from Excel** (two columns: class, name). Saved online; the welcome page uses them at once (`js/roster.js` is only the default).
+- **Commands for a class** (buttons in each class header of the live view):
+  - **📢 Message**: shown on every screen of the class;
+  - **⏸ Pause screens**: "Eyes on your teacher" on every screen (running programs stop) until **▶ Resume**;
+  - **🔒 Close access**: the class is greyed out on the welcome page and connected students see "Your class is closed" (work saved) until **🔓 Open access**.
+- **📝 Exams:** **Start an exam** in a class header: title, duration, challenges, hints allowed or not.
+  - The students of that class switch to the exam within a few seconds: countdown, only the chosen challenges, each from an **empty program** (their practice work is kept apart), no mode switching.
+  - Only their **best "Check my solution"** counts. At the end of the time (or **⏹ Stop**) they see their scores; **✓ Back to normal** returns them to their usual work.
+  - **Results**: best score per challenge, number of checks, average and **Swiss grade**, CSV export, click a score to see the program. **🔁 Verify by replaying the programs** re-runs every saved program on the official trials (deterministic) and flags any score that differs.
+  - All exams: **📝 Exams & results** in the live view.
+- **🕓 Program history:** a version is kept at every **Run** (when the program changed) and every **Check** (with its score), the last 25 per program. In the student view (👁 or a progress dot), the history bar shows each version: click one to see it and run it, **● Now** to come back.
+- **💬 Comments on blocks:** in the student view, click a block of their program, then **Comment on the selected block**. The student sees a ⚠ bubble on that block and a *Comments from your teacher* panel (**Show the block**, **Got it ✓**). The dashboard shows whether each comment was read.
+- **💾 Daily backups:** made automatically once a day (Vercel cron job, and when the dashboard is open), kept 30 days, listed in Manage with **⬇ Download** and **↩ Restore**. **Make a backup now** for an extra one.
+- **Database usage** (Manage): operations used this month against the free quota, forecast for the month, data size.
 
 ## Online hosting (Vercel)
 
@@ -138,10 +156,15 @@ js/render.js                simulator drawing
 js/fll.js / js/fll3d.js     FLL BIOGLOW table, missions, score / 3D view
 js/portview.js              Port View / configuration tiles
 js/progress.js              student progress, save file, live sync
+js/classroom.js             student side of the classroom tools (help, comments, class commands, exams, history)
+js/teacher-classroom.js     dashboard side of the classroom tools, class lists, backups, database usage
+js/roster.js                default class lists
 js/analysis.js              difficulty analysis for the report
 js/config.js                classroom settings (pass score, save reminder)
 js/app.js / js/teacher.js   student app / teacher dashboard
-api/index.py                API for Vercel (Upstash Redis storage)
+api/_core.py                the API (shared): storage on disk (data/db/) or in Upstash Redis
+api/index.py                Vercel wrapper of the API
+tests/apitest.py            tests every API endpoint (python3 tests/apitest.py URL password)
 tests/vercel_local.py       runs the app like on Vercel, locally
 server.py                   class server (app + live progress API + public link). Data in data/; data/ and tools/ are never served
 lib/                        Blockly 11, continuous toolbox, QR code, three.js (local, offline)

@@ -6,7 +6,7 @@ const esc = (s) => String(s === undefined || s === null ? '' : s).replace(/[&<>"
 
 const T = {
   code: localStorage.getItem('ev3sim.teacherCode') || '',
-  live: [], serverNow: 0, liveTimer: null,
+  live: [], serverNow: 0, liveTimer: null, help: [], classctl: {}, roster: null,
   files: [], // full progress files (with programs)
   viewWs: null,
 };
@@ -30,6 +30,7 @@ function liveStatus(s) {
   const cur = s.challenges && s.challenges[s.current];
   if (s.live && s.live.status === 'left') return { cls: 'off', text: '👋 Left' };
   if (age > ONLINE_SECONDS) return { cls: 'off', text: `⚪ Offline (${fmtTime(age)})` };
+  if (s.live && s.live.exam) return { cls: 'exam', text: s.live.exam.over ? '📝 Exam finished' : `📝 Exam · ${esc(chShort(s.live.exam.challenge))}${s.live.status === 'evaluating' ? ' (checking)' : ''}` };
   const st = s.live && s.live.status;
   if (st === 'running') return { cls: '', text: '▶ Running a program' };
   if (st === 'evaluating') return { cls: '', text: '✅ Checking solution' };
@@ -45,7 +46,7 @@ function rowHtml(s, i, stats, source) {
   const status = source === 'live' ? liveStatus(s) : { cls: '', text: s.lastSavedAt ? new Date(s.lastSavedAt).toLocaleString() : '—' };
   const canValidate = source === 'live' && s.mode === 'guided' && cur && cur.status !== 'validated';
   return `<tr class="${status.cls === 'wait' ? 'waiting' : ''}">
-    <td>${source === 'live' ? `<span class="pres ${isOnline(s) ? 'on' : 'off'}" title="${isOnline(s) ? 'Connected now' : 'Not connected now'}"></span>` : ''}<b>${esc(s.name)}</b>${s.className && source !== 'live' ? ` <span class="muted">${esc(s.className)}</span>` : ''}</td>
+    <td>${source === 'live' && T.help.some((h) => h.studentId === s.studentId) ? '<span class="help-badge" title="Asked for help">🙋</span>' : ''}${source === 'live' ? `<span class="pres ${isOnline(s) ? 'on' : 'off'}" title="${isOnline(s) ? 'Connected now' : 'Not connected now'}"></span>` : ''}<b>${esc(s.name)}</b>${s.className && source !== 'live' ? ` <span class="muted">${esc(s.className)}</span>` : ''}</td>
     <td>${modeCell}</td>
     <td>${dotsHtml(s, source + ':' + i)}<span class="muted">${a.validated} / ${CHALLENGES.length}</span></td>
     <td>${fll ? `<button class="linklike" data-dot="${source}:${i}" data-ch="fll">FLL BIOGLOW</button>${fllBest !== null ? ` <span class="muted">best ${fllBest} pts · ${s.fll.matches.length} match${s.fll.matches.length > 1 ? 'es' : ''}</span>` : ''}` : free ? '<span class="muted">free programming</span>' : esc(chShort(s.current))}</td>
@@ -88,6 +89,9 @@ async function refreshLive() {
     const data = await r.json();
     T.live = (data.students || []).sort(byClassThenName);
     T.serverNow = data.now;
+    T.help = (data.help || []).sort((a, b) => a.since - b.since);
+    T.classctl = data.classctl || {};
+    renderHelpQueue();
     renderLive();
     $('liveStatus').textContent = '● Live · updated ' + new Date().toLocaleTimeString();
     $('liveStatus').classList.add('on');
@@ -98,7 +102,12 @@ async function refreshLive() {
 }
 
 // ---------- Classes (chosen by the teacher in Manage) ----------
-const CLASSES = CLASSROOM.classes || [];
+// Classes: those of the class lists (edited in Manage) plus js/config.js.
+let CLASSES = CLASSROOM.classes || [];
+const teacherRoster = () => T.roster || ROSTER;
+function refreshClasses() {
+  CLASSES = [...new Set([...Object.keys(teacherRoster()), ...(CLASSROOM.classes || [])])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
 const classRank = (c) => { const i = CLASSES.indexOf(c || ''); return i >= 0 ? i : c ? CLASSES.length : CLASSES.length + 1; };
 const byClassThenName = (a, b) => classRank(a.className) - classRank(b.className) || (a.className || '').localeCompare(b.className || '') || a.name.localeCompare(b.name);
 const classLabel = (c) => c || 'No class yet';
@@ -126,7 +135,7 @@ function groupedHtml(items, cols) {
 const nkey = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLowerCase();
 function renderLive() {
   const stats = classStats(T.live);
-  const rosterStudents = Object.entries(typeof ROSTER === 'object' ? ROSTER : {}).flatMap(([c, names]) => names.map((name) => ({ name, className: c })));
+  const rosterStudents = Object.entries(teacherRoster()).flatMap(([c, names]) => names.map((name) => ({ name, className: c })));
   fillClassFilter($('liveClass'), T.live.concat(rosterStudents), 'All classes');
   const f = $('liveClass').value;
   const groups = new Map();
@@ -146,7 +155,7 @@ function renderLive() {
     const on = rows.filter((r) => r.i >= 0 && isOnline(r.s)).length;
     online += on; total += rows.length;
     help += rows.filter((r) => r.i >= 0 && analyzeStudent(r.s, stats).level === 'help').length;
-    html += `${gi ? '<tr class="grp-gap"><td colspan="10"></td></tr>' : ''}<tr class="grp"><td colspan="10">🏫 ${esc(classLabel(c))} <span class="grp-count${on ? ' on' : ''}">${on} / ${rows.length} connected</span></td></tr>`;
+    html += `${gi ? '<tr class="grp-gap"><td colspan="10"></td></tr>' : ''}<tr class="grp"><td colspan="10"><div class="grp-row">🏫 ${esc(classLabel(c))} <span class="grp-count${on ? ' on' : ''}">${on} / ${rows.length} connected</span>${c ? classCtlHtml(c) : ''}</div></td></tr>`;
     html += rows.map((r) => (r.i >= 0 ? rowHtml(r.s, r.i, stats, 'live')
       : `<tr class="absent"><td><span class="pres never" title="Never connected"></span><b>${esc(r.s.name)}</b></td><td colspan="6"></td><td class="st off">○ Not connected yet</td><td></td><td></td></tr>`)).join('');
   });
@@ -497,12 +506,16 @@ async function watchStudent(id, opts = {}) {
   W.static = opts.work || null;
   openModal(`<div class="watch-head"><h2 id="wTitle" style="margin:0"></h2>${W.static ? '<span class="muted">saved file</span>' : '<span class="live-dot">● live</span>'}
       <label>Program <select id="wSlot"></select></label><span id="wStatus" class="muted"></span></div>
+    <div id="wHist" class="hist-bar"></div>
     <div class="watch">
       <div id="watchWs"></div>
       <div class="watch-side">
         <canvas id="watchCanvas"></canvas>
         <div class="actions"><button class="primary" id="wRun">▶ Run their program</button><button id="wStop">■ Stop</button><span id="wResult" class="muted"></span></div>
         <div id="wCriteria"></div>
+        <div class="w-notes"><div class="actions"><b>💬 Comments</b><span class="spacer" style="flex:1"></span><button id="wNoteBtn" class="mini" disabled title="Click a block in their program first">💬 Comment on the selected block</button></div>
+          <div id="wNoteForm" hidden><textarea id="wNoteText" rows="2" placeholder="e.g. Why 3 rotations here? Try with the color sensor."></textarea><div class="actions"><button class="mini primary" id="wNoteSend">Send to the student</button><button class="mini" id="wNoteCancel">Cancel</button></div></div>
+          <div id="wNotes"></div></div>
         <div><b>Recent errors</b><div id="wErrors" class="log"></div></div>
       </div>
     </div>`);
@@ -511,7 +524,8 @@ async function watchStudent(id, opts = {}) {
   W.sim = new Sim();
   W.brick = new Brick();
   W.brick.sound.muted = true;
-  $('wSlot').onchange = () => { W.slot = $('wSlot').value; W.last = ''; refreshWatch(); };
+  $('wSlot').onchange = () => { W.slot = $('wSlot').value; W.last = ''; W.version = null; W.histKey = ''; refreshWatch(); };
+  setupWatchExtras();
   $('wRun').onclick = runWatched;
   $('wStop').onclick = () => { W.token++; };
   const c = $('watchCanvas');
@@ -548,8 +562,11 @@ async function refreshWatch(first) {
   const html = slots.map(([v, l]) => `<option value="${esc(v)}"${v === W.slot ? ' selected' : ''}>${esc(l)}</option>`).join('');
   if (sel.innerHTML !== html) sel.innerHTML = html;
   const entry = W.slot === 'free' ? work.free : W.slot === 'fll' ? work.fll : work.challenges[W.slot];
-  const program = entry && entry.program;
-  const key = JSON.stringify(program || null);
+  const liveKey = JSON.stringify((entry && entry.program) || null);
+  if (liveKey !== W.histKey) { W.histKey = liveKey; loadWatchHistory(); } // a new version may have been recorded
+  const shown = watchProgram(entry);
+  const program = shown.program;
+  const key = (W.version !== null && W.version !== undefined ? 'v' + W.version : '') + JSON.stringify(program || null);
   if (key !== W.last) {
     W.last = key;
     const view = W.ws.getMetricsManager().getViewMetrics();
@@ -557,6 +574,9 @@ async function refreshWatch(first) {
     if (program) Blockly.serialization.workspaces.load(program, W.ws);
     $('wResult').textContent = program ? '' : 'No code yet for this one.';
     if (first) W.ws.scrollCenter(); else W.ws.scroll(-view.left, -view.top);
+    W.selBlock = null;
+    $('wNoteBtn').disabled = true;
+    renderWatchNotes();
   }
   const errs = (work.events || []).filter((e) => e.type === 'error').slice(-8).reverse();
   $('wErrors').innerHTML = errs.map((e) => `<div class="error">${new Date(e.t).toLocaleTimeString()} · ${esc(e.d || '')}</div>`).join('') || '<span class="muted">No errors</span>';
@@ -596,7 +616,7 @@ function drawWatchIdle(entry) {
 
 async function runWatched() {
   if (W.running) return;
-  const entry = W.slot === 'free' ? W.work.free : W.slot === 'fll' ? W.work.fll : W.work.challenges[W.slot];
+  const entry = watchProgram(W.slot === 'free' ? W.work.free : W.slot === 'fll' ? W.work.fll : W.work.challenges[W.slot]);
   if (!entry || !entry.program) { $('wResult').textContent = 'No program yet.'; return; }
   const token = ++W.token;
   W.running = true;
@@ -651,6 +671,8 @@ function stopWatch() {
   W.token++;
   W.id = null;
   W.static = null;
+  W.version = null;
+  W.hist = [];
   if (W.ws) { W.ws.dispose(); W.ws = null; }
 }
 

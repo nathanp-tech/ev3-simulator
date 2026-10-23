@@ -36,6 +36,7 @@ const Progress = {
       current: CHALLENGES[0].id, totalTime: 0, freeTime: 0,
       free: { program: null, robot: null, runs: 0, errors: {} },
       fll: newFllEntry(),
+      exams: {},
       challenges, events: [],
     };
     this.log('start', null, mode);
@@ -54,6 +55,7 @@ const Progress = {
     });
     if (!obj.free) obj.free = { program: null, robot: null, runs: 0, errors: {} };
     if (!obj.fll) obj.fll = newFllEntry();
+    if (!obj.exams) obj.exams = {};
     this.data = obj;
     // Older files: challenges that were waiting for the teacher are now passed.
     for (const c of CHALLENGES) if (obj.challenges[c.id].status === 'passed') this.validate(c.id, 'check');
@@ -253,15 +255,36 @@ const Sync = {
     if (Date.now() - this.lastPoll < (CLASSROOM.syncPollSeconds || 3) * 1000 - 50) return;
     this.lastPoll = Date.now();
     try {
-      const r = await fetch('api/student/' + Progress.data.studentId, { cache: 'no-store' });
-      this.applyStatus(await r.json());
+      const r = await fetch(`api/student/${Progress.data.studentId}?className=${encodeURIComponent(Progress.data.className || '')}`, { cache: 'no-store' });
+      const d = await r.json();
+      this.applyStatus(d);
+      if (d.now) this.serverOffset = d.now * 1000 - Date.now();
+      if (this.onClassCtl) this.onClassCtl(d.classctl || {});
     } catch (e) { /* offline */ }
   },
-  applyStatus({ validated, rev, deleted }) {
+  // Server time (ms): exam countdowns use the server clock, not the student's computer clock.
+  serverOffset: 0,
+  now() { return Date.now() + this.serverOffset; },
+  applyStatus({ validated, rev, deleted, helpDone, notesRev }) {
     if (!Progress.data) return;
     if (deleted) { if (this.onDeleted) this.onDeleted(); return; }
     if (rev > (Progress.data.adminRev || 0)) { if (this.onRemoteChange) this.onRemoteChange(); return; }
     for (const id of validated || []) if (Progress.data.challenges[id] && Progress.data.challenges[id].status !== 'validated' && this.onValidated) this.onValidated(id);
+    if (helpDone && this.onHelpDone) this.onHelpDone(helpDone);
+    if (notesRev !== undefined && notesRev !== this.notesRev && this.onNotesRev) { this.notesRev = notesRev; this.onNotesRev(notesRev); }
+  },
+  notesRev: undefined,
+  // Small calls for the classroom features (js/classroom.js). They fail silently offline.
+  async post(url, body) {
+    if (!this.online) return null;
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return r.ok ? r.json() : null;
+    } catch (e) { return null; }
+  },
+  async getJson(url) {
+    if (location.protocol === 'file:') return null;
+    try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? r.json() : null; } catch (e) { return null; }
   },
   // Class settings chosen by the teacher in the dashboard (override js/config.js).
   async loadSettings() {

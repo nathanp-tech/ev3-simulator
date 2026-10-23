@@ -55,6 +55,7 @@ function toast(msg, ms = 3500) {
 // ---------- Programs: one per challenge, plus the free-programming one ----------
 function workSlot() {
   if (!Progress.data) return null;
+  if (App.exam) return App.examCh ? examSlot(App.examCh) : null;
   if (App.mode === 'fll') return Progress.data.fll;
   return App.mode === 'challenge' ? Progress.ch() : Progress.data.free;
 }
@@ -81,6 +82,7 @@ function loadProgram(state) {
 function loadSlot(slot) {
   loadProgram(slot && slot.program);
   applyConfig(slot && slot.robot ? slot.robot : DEFAULT_CONFIG, { save: false });
+  setTimeout(applyNotes, 0); // teacher comments on the blocks of this program
 }
 let saveTimer = null;
 function autosave() {
@@ -132,7 +134,14 @@ function showWelcome() {
   } else {
     btn.hidden = true;
   }
+  App.exam = null;
+  CR.examOver = false;
+  CR.helpSince = 0;
+  $('examOverlay').hidden = $('pauseOverlay').hidden = $('closedOverlay').hidden = true;
+  updateExamBanner();
+  renderHelpButton();
   pickClass('');
+  loadRoster().then(() => { if (!$('welcome').hidden && !$('wName').value) pickClass($('wClass').value); });
 }
 
 // ---------- Welcome: the student chooses their class, then their name (js/roster.js) ----------
@@ -140,10 +149,15 @@ const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
 function pickClass(cls) {
   $('wClass').value = cls;
   $('wName').value = '';
-  $('wClasses').innerHTML = Object.keys(ROSTER).map((c) => `<button class="wclass${c === cls ? ' on' : ''}" data-class="${esc(c)}">${esc(c)}</button>`).join('');
+  const roster = currentRoster();
+  if (cls && (!roster[cls] || classClosed(cls))) cls = '';
+  $('wClass').value = cls;
+  $('wClasses').innerHTML = Object.keys(roster).sort(byName).map((c) => classClosed(c)
+    ? `<button class="wclass closed" disabled title="Your teacher closed this class for now">🔒 ${esc(c)}</button>`
+    : `<button class="wclass${c === cls ? ' on' : ''}" data-class="${esc(c)}">${esc(c)}</button>`).join('');
   $('wClasses').querySelectorAll('[data-class]').forEach((b) => { b.onclick = () => pickClass(b.dataset.class); });
   $('wNameStep').hidden = !cls;
-  $('wNames').innerHTML = cls ? ROSTER[cls].slice().sort(byName).map((n) => `<button class="wname" data-name="${esc(n)}">${esc(n)}</button>`).join('') : '';
+  $('wNames').innerHTML = cls ? roster[cls].slice().sort(byName).map((n) => `<button class="wname" data-name="${esc(n)}">${esc(n)}</button>`).join('') : '';
   $('wNames').querySelectorAll('[data-name]').forEach((b) => { b.onclick = () => pickName(b.dataset.name); });
   $('wPick').hidden = false;
   $('wMe').hidden = true;
@@ -189,7 +203,7 @@ function applyClassSettings() {
   document.querySelector('.choice.guided').hidden = CLASSROOM.allowGuided === false;
   document.querySelector('.choice.free').hidden = CLASSROOM.allowFree === false;
   document.querySelector('.choice.fll').hidden = CLASSROOM.allowFLL === false;
-  $('btnSwitchMode').disabled = ['guided', 'free', 'fll'].filter(modeAllowed).length < 2;
+  $('btnSwitchMode').disabled = !!App.exam || ['guided', 'free', 'fll'].filter(modeAllowed).length < 2;
 }
 
 function startSession(data, { quiet = false } = {}) {
@@ -291,6 +305,7 @@ function switchMode() {
 // ---------- Modes ----------
 function setMode(mode, { initial = false } = {}) {
   if (App.status === 'evaluating') return;
+  if (App.exam) { enterExamChallenge(App.examCh || App.exam.challenges[0], { skipStore: true }); return; } // the exam stays on screen
   if (App.status === 'running') { rt.stopAll('user'); App.status = 'idle'; updateButtons(); }
   if (!initial) storeWorkspace();
   App.mode = mode;
@@ -327,6 +342,7 @@ function loadSandboxMat(id) {
 
 // ---------- Guided challenges ----------
 function enterChallenge(id, { skipStore = false } = {}) {
+  if (App.exam) { enterExamChallenge(id); return; }
   const entry = Progress.data.challenges[id];
   if (!entry || entry.status === 'locked') return;
   if (App.status !== 'idle') return;
@@ -348,6 +364,7 @@ function selectChallenge(id, newSeed = true) {
 }
 
 function renderGuided() {
+  if (App.exam) { renderExam(); return; }
   const ch = App.challenge, entry = Progress.ch(ch.id);
   const idx = CHALLENGES.indexOf(ch);
   $('stepper').innerHTML = CHALLENGES.map((c, i) => {
@@ -390,6 +407,7 @@ function onValidated(id, by) {
 }
 
 function showHint() {
+  if (App.exam) { examHint(); return; }
   const entry = Progress.ch();
   const n = Math.min((App.challenge.hints || []).length, entry.hints + 1);
   Progress.onHint(n);
@@ -465,7 +483,8 @@ function runProgram() {
     console.error(e, prog.code);
     return;
   }
-  Progress.onRun(progressMode());
+  if (!App.exam) Progress.onRun(progressMode());
+  recordVersion('run');
   showSimError(null);
   App.status = 'running';
   App.simTarget = sim.t;
@@ -538,7 +557,7 @@ function onProgramEnd() {
     else if (!FLL.homeOf(sim.bodyPoly())) log('The robot stopped outside home. Bring it back with your program next time, or click "Rescue robot" (−1 precision token).', 'info');
   } else if (App.mode === 'challenge' && App.ctx) {
     const res = finishChallenge(App.ctx, reason);
-    Progress.onPractice(res);
+    if (!App.exam) Progress.onPractice(res);
     $('practiceResult').innerHTML = `<div class="scorebar">Practice run: ${res.score} %<div class="bar-bg"><div class="bar-fg" style="width:${res.score}%"></div></div></div>${criteriaHtml(res.criteria)}<div class="muted">When you think it works, click <b>Check my solution</b>.</div>`;
   } else {
     for (let i = 0; i < SETTLE_STEPS; i++) sim.step(DT);
@@ -573,6 +592,8 @@ async function evaluate() {
   App.evalRt = null;
   updateButtons();
   if (!res) { box.innerHTML = ''; log('Check cancelled'); return; }
+  recordVersion('check', res.score);
+  if (App.exam) { box.innerHTML = ''; if (!CR.examOver) onExamGrade(res); return; }
   const wasValidated = Progress.ch().status === 'validated';
   Progress.onGrade(res);
   Sync.push(liveState(), true);
@@ -724,6 +745,7 @@ function liveState(status) {
     status: status || (App.status === 'idle' ? 'editing' : App.status),
     mode: progressMode(),
     challenge: App.mode === 'challenge' && App.challenge ? App.challenge.id : App.mode === 'fll' ? 'fll' : null,
+    exam: App.exam ? { id: App.exam.id, challenge: App.examCh, over: CR.examOver } : null,
     blocks: ws ? ws.getAllBlocks(false).filter((b) => !b.isShadow()).length : 0,
   };
 }
@@ -1177,6 +1199,7 @@ function init() {
 
   setupFll();
   $('wTeacher').onclick = teacherLogin;
+  setupClassroom();
   $('btnBig').onclick = () => {
     document.body.classList.toggle('bigfield');
     $('btnBig').title = document.body.classList.contains('bigfield') ? 'Back to normal size (more room for your blocks)' : 'Bigger simulator';
