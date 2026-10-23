@@ -310,6 +310,26 @@ const RESET_PARTS = [
   ['history', 'History of program versions'],
   ['notes', 'Comments on their blocks'],
 ];
+// Live class ↺: clear a student completely. They are logged out and appear as "Not connected yet";
+// they start again by choosing their name.
+function clearStudentDialog(s) {
+  openModal(`<h2>↺ Clear ${esc(studentLabel(s))}</h2>
+    <p>Everything of this student is deleted: progress, programs, history of versions, comments, help request.</p>
+    <p>If they are connected, they are <b>logged out</b> (within a few seconds) and come back to the welcome page. In the live view they appear as <b>○ Not connected yet</b>: they start again by choosing their name.</p>
+    <p class="muted">A copy is kept 180 days (and in the daily backups). Exam results are kept.</p>
+    <div class="actions" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button><button class="danger" id="clearGo">↺ Clear and log out</button></div>`);
+  $('clearGo').onclick = async () => {
+    $('clearGo').disabled = true;
+    try {
+      const res = await adminPost({ action: 'delete', studentIds: [s.studentId] });
+      if (!res.ok) throw new Error(res.error || 'failed');
+      T.help = T.help.filter((h) => h.studentId !== s.studentId);
+      closeModal();
+      await refreshLive();
+    } catch (e) { alert('Could not clear: ' + e.message); $('clearGo').disabled = false; }
+  };
+}
+
 // preset: the boxes checked at first (all of them when not given).
 function resetStudentsDialog(ids, preset = null) {
   const names = ids.map((id) => studentLabel(byId(id) || { name: id })).join(', ');
@@ -462,7 +482,7 @@ function setupClassroomTeacher() {
     const b = e.target.closest('[data-ctl]');
     if (b) { e.stopPropagation(); classCommand(b); }
     const r = e.target.closest('[data-reset]');
-    if (r) resetStudentsDialog([T.live[Number(r.dataset.reset)].studentId], ['history']);
+    if (r) clearStudentDialog(T.live[Number(r.dataset.reset)]);
   });
   $('btnExams').onclick = () => examsList().catch((e) => alert(e.message));
   document.querySelector('[data-tab="manageTab"]').addEventListener('click', () => { if (!$('liveArea').hidden) renderManageExtras(); });

@@ -55,7 +55,7 @@ function rowHtml(s, i, stats, source) {
     <td>${fll ? (fllBest !== null ? fllBest + ' pts' : '—') : !free && cur && cur.bestScore !== null ? cur.bestScore + ' %' : '—'}</td>
     <td class="st ${status.cls}">${status.text}</td>
     <td class="lvl ${a.level}" title="${esc(a.summary.join(' '))}">${LEVEL_LABEL[a.level]}</td>
-    <td style="white-space:nowrap">${canValidate ? `<button class="mini" data-validate="${i}" title="Mark this challenge as passed and unlock the next one">Unlock next</button> ` : ''}${source === 'live' ? `<button class="mini primary" data-watch="${i}" title="See their blocks live and run their program">👁 View</button> <button class="mini" data-reset="${i}" title="Clear this student's history (or more)">↺</button> ` : ''}<button class="mini" data-details="${i}" data-src="${source}">Details</button></td>
+    <td style="white-space:nowrap">${canValidate ? `<button class="mini" data-validate="${i}" title="Mark this challenge as passed and unlock the next one">Unlock next</button> ` : ''}${source === 'live' ? `<button class="mini primary" data-watch="${i}" title="See their blocks live and run their program">👁 View</button> <button class="mini" data-reset="${i}" title="Clear this student: everything is deleted, they are logged out and start again">↺</button> ` : ''}<button class="mini" data-details="${i}" data-src="${source}">Details</button></td>
   </tr>`;
 }
 
