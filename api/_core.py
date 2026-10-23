@@ -638,6 +638,21 @@ class Api:
                 st.update({'rev': rev, 'validated': []})
                 self.r(['SET', P + 'work:' + sid, json.dumps(work)], ['HSET', P + 'snap', sid, json.dumps(snap)], ['SET', P + 'st:' + sid, json.dumps(st)])
                 return 200, {'ok': True, 'rev': rev}
+            if action == 'clear-extras':
+                # Part of "reset a student": program history, teacher comments, help request.
+                sid = str(data.get('studentId', ''))
+                if not ID.fullmatch(sid):
+                    return 400, {'error': 'bad id'}
+                cmds = []
+                if data.get('history'):
+                    cmds.append(['DEL', P + 'hist:' + sid])
+                if data.get('notes'):
+                    st = self.status(sid)
+                    st['notesRev'] = st.get('notesRev', 0) + 1
+                    cmds += [['DEL', P + 'notes:' + sid], ['SET', P + 'st:' + sid, json.dumps(st)]]
+                cmds.append(['HDEL', P + 'help', sid])
+                self.r(*cmds)
+                return 200, {'ok': True}
             if action == 'delete':
                 ids = [str(i) for i in data.get('studentIds') or [] if ID.fullmatch(str(i))]
                 dest = self.archive('deleted')

@@ -242,8 +242,10 @@ function showDetails(s, all, isLive) {
     ${a.perChallenge.filter((p) => p.notes.length).map((p) => `<p><b>${esc(chTitle(p.id))}</b><ul>${p.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></p>`).join('')}
     <table><tr><th>Challenge</th><th>Status</th><th>Time</th><th>Runs</th><th>Checks</th><th>Hints</th><th>Errors</th><th>Failed criteria</th><th></th></tr>${rows}</table>
     <div id="progView" hidden style="height:360px;border:1px solid var(--border);border-radius:8px;margin-top:10px"></div>
-    ${isLive ? '<p><button class="mini" id="btnForget">Remove this student from the live list</button></p>' : ''}
+    ${isLive ? '<p><button class="mini" id="btnResetStudent">↺ Reset this student\'s data…</button> <button class="mini" id="btnForget">Remove this student from the live list</button></p>' : ''}
     <h3>Recent activity</h3><div style="font-size:12px;max-height:220px;overflow:auto">${events || '<span class="muted">No activity</span>'}</div>`);
+  const rb = $('btnResetStudent');
+  if (rb) rb.onclick = () => resetStudentsDialog([s.studentId]);
   const fb = $('btnForget');
   if (fb) fb.onclick = async () => {
     if (!confirm(`Remove ${s.name} from the live list? (their saved work is kept)`)) return;
@@ -363,7 +365,7 @@ function renderManage() {
       <td style="white-space:nowrap">
         <button class="mini mg-save" hidden>Save name</button>
         <select class="mg-to" title="Unlock up to this challenge">${unlockOpts}</select><button class="mini mg-unlock">🔓</button>
-        <button class="mini mg-reset" title="Reset progress">↺</button>
+        <button class="mini mg-reset" title="Reset this student's data">↺</button>
         <button class="mini mg-dl" title="Download this student's work">💾</button>
         <button class="mini danger mg-del" title="Delete this student">🗑</button>
       </td></tr>`;
@@ -391,11 +393,6 @@ function unlockUpTo(work, idx) {
     if (i === idx && e.status === 'locked') e.status = 'open';
   });
   work.current = CHALLENGES[idx].id;
-}
-function resetWork(work) {
-  const challenges = {};
-  CHALLENGES.forEach((c, i) => { challenges[c.id] = newChallengeEntry(i === 0 ? 'open' : 'locked'); });
-  Object.assign(work, { challenges, current: CHALLENGES[0].id, totalTime: 0, freeTime: 0, free: { program: null, robot: null, runs: 0, errors: {} }, events: [] });
 }
 async function bulk(ids, label, fn) {
   if (!ids.length) { alert('Select students first.'); return; }
@@ -453,7 +450,7 @@ function setupManage() {
       const idx = Number(tr.querySelector('.mg-to').value);
       await bulk([id], `Unlock up to "${CHALLENGES[idx].title}" for`, (sid) => changeWork(sid, (w) => unlockUpTo(w, idx)));
     }
-    if (e.target.classList.contains('mg-reset')) await bulk([id], 'Reset the progress of', (sid) => changeWork(sid, resetWork));
+    if (e.target.classList.contains('mg-reset')) resetStudentsDialog([id]);
     if (e.target.classList.contains('mg-del')) await bulk([id], 'Delete (a copy is kept in data/archive/)', (sid) => adminPost({ action: 'delete', studentIds: [sid] }));
     if (e.target.classList.contains('mg-dl')) {
       const work = await (await fetch('api/work/' + id, { cache: 'no-store' })).json();
@@ -461,7 +458,7 @@ function setupManage() {
     }
   });
   $('mgUnlockSel').onclick = () => { const idx = Number($('mgUnlockTo').value); bulk(selectedIds(), `Unlock up to "${CHALLENGES[idx].title}" for`, (sid) => changeWork(sid, (w) => unlockUpTo(w, idx))); };
-  $('mgResetSel').onclick = () => bulk(selectedIds(), 'Reset the progress of', (sid) => changeWork(sid, resetWork));
+  $('mgResetSel').onclick = () => { const ids = selectedIds(); if (!ids.length) alert('Select students first.'); else resetStudentsDialog(ids); };
   $('mgDeleteSel').onclick = () => bulk(selectedIds(), 'Delete (a copy is kept in data/archive/)', async (sid) => adminPost({ action: 'delete', studentIds: [sid] }));
   $('btnBackup').onclick = async () => {
     const r = await tfetch('api/admin/backup');

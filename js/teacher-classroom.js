@@ -293,6 +293,51 @@ function renderWatchNotes() {
   });
 }
 
+// ---------- Reset the data of one or several students ----------
+const RESET_PARTS = [
+  ['guided', 'Guided challenges: progress, programs, times, checks (back to challenge 1)'],
+  ['free', 'Free programming: program and statistics'],
+  ['fll', 'FIRST LEGO League: program, matches and best score'],
+  ['history', 'History of program versions'],
+  ['notes', 'Comments on their blocks'],
+];
+function resetStudentsDialog(ids) {
+  const names = ids.map((id) => studentLabel(byId(id) || { name: id })).join(', ');
+  openModal(`<h2>↺ Reset ${ids.length > 1 ? ids.length + ' students' : esc(names)}</h2>
+    ${ids.length > 1 ? `<p class="muted">${esc(names)}</p>` : ''}
+    <p>What do you want to clear?</p>
+    <div class="reset-parts">${RESET_PARTS.map(([k, label]) => `<label><input type="checkbox" value="${k}" checked> ${esc(label)}</label>`).join('')}</div>
+    <p class="muted">The student keeps their name and class. A copy of the current work is kept in the daily backups (Manage). Exam results are kept. If the student is connected, their screen reloads with the cleared work.</p>
+    <div class="actions" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button><button class="danger" id="resetGo">↺ Reset</button></div>`);
+  $('resetGo').onclick = async () => {
+    const parts = new Set([...document.querySelectorAll('.reset-parts input:checked')].map((x) => x.value));
+    if (!parts.size) { alert('Choose at least one thing to clear.'); return; }
+    $('resetGo').disabled = true;
+    try {
+      await tpost('api/backup/now', {}).catch(() => {}); // a fresh copy just before
+      for (const id of ids) {
+        if (parts.has('guided') || parts.has('free') || parts.has('fll')) await changeWork(id, (w) => resetParts(w, parts));
+        if (parts.has('history') || parts.has('notes')) await adminPost({ action: 'clear-extras', studentId: id, history: parts.has('history'), notes: parts.has('notes') });
+      }
+      closeModal();
+      await refreshLive();
+      renderManage();
+      if (!$('manageArea').hidden) $('mgMsg').textContent = `✓ ${ids.length} student${ids.length > 1 ? 's' : ''} reset.`;
+    } catch (e) { alert('Reset failed: ' + e.message); $('resetGo').disabled = false; }
+  };
+}
+function resetParts(work, parts) {
+  if (parts.has('guided')) {
+    const challenges = {};
+    CHALLENGES.forEach((c, i) => { challenges[c.id] = newChallengeEntry(i === 0 ? 'open' : 'locked'); });
+    Object.assign(work, { challenges, current: CHALLENGES[0].id });
+  }
+  if (parts.has('free')) Object.assign(work, { free: { program: null, robot: null, runs: 0, errors: {} }, freeTime: 0 });
+  if (parts.has('fll')) work.fll = newFllEntry();
+  if (parts.has('guided') && parts.has('free') && parts.has('fll')) Object.assign(work, { totalTime: 0, events: [] });
+  else work.events = (work.events || []).filter((e) => !(parts.has('guided') && e.ch && e.ch !== 'fll') && !(parts.has('fll') && e.ch === 'fll'));
+}
+
 // ---------- Manage: class lists ----------
 let rosterDraft = null;
 function renderRosterEditor() {
