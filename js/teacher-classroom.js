@@ -113,7 +113,7 @@ function examDialog(c) {
       <label>Duration <input id="exMin" type="number" min="1" max="240" value="30" style="width:70px"> minutes</label>
       <label><input type="checkbox" id="exHints"> Hints allowed</label>
       <div><b>Challenges</b>
-        <div class="exam-chs">${CHALLENGES.map((ch, i) => `<label><input type="checkbox" value="${esc(ch.id)}"${i < 3 ? ' checked' : ''}> ${esc(ch.title)} <span class="muted">(level ${ch.level})</span></label>`).join('')}</div>
+        <div class="exam-chs">${CATEGORIES.map((cat) => `<div class="exam-cat">${cat.icon} ${esc(cat.label)}</div>` + CHALLENGES.filter((ch) => ch.cat === cat.id).map((ch, i) => `<label><input type="checkbox" value="${esc(ch.id)}"${cat.id === 'motion' && i < 2 ? ' checked' : ''}> ${esc(ch.title)} <span class="muted">(level ${ch.level})</span></label>`).join('')).join('')}</div>
       </div>
     </div>
     <div class="actions" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button><button class="primary" id="exStart">▶ Start the exam</button></div>`);

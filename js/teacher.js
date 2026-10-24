@@ -14,11 +14,12 @@ const T = {
 // Progress dots: one per challenge, click to see the student's code for that challenge.
 const STATUS_TEXT = { locked: 'locked', open: 'in progress', passed: 'passed', validated: 'passed' };
 function dotsHtml(s, ref) {
-  return '<span class="dots">' + CHALLENGES.map((c) => {
+  return '<span class="dots">' + CHALLENGES.map((c, i) => {
     const e = s.challenges && s.challenges[c.id];
     const st = e ? e.status : 'locked';
-    const tip = `${c.title}: ${STATUS_TEXT[st]}${e && e.bestScore !== null && e.bestScore !== undefined ? ' · best ' + e.bestScore + ' %' : ''} · click to see the code`;
-    return `<button class="dot ${st}${s.mode !== 'free' && s.current === c.id ? ' cur' : ''}" data-dot="${ref}" data-ch="${c.id}" title="${esc(tip)}"></button>`;
+    const gap = i && CHALLENGES[i - 1].cat !== c.cat ? '<span class="dot-gap"></span>' : '';
+    const tip = `${categoryOf(c).icon} ${c.title}: ${STATUS_TEXT[st]}${e && e.bestScore !== null && e.bestScore !== undefined ? ' · best ' + e.bestScore + ' %' : ''} · click to see the code`;
+    return `${gap}<button class="dot ${st}${s.mode !== 'free' && s.current === c.id ? ' cur' : ''}" data-dot="${ref}" data-ch="${c.id}" title="${esc(tip)}"></button>`;
   }).join('') + '</span>';
 }
 

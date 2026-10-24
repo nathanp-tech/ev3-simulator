@@ -465,6 +465,13 @@ class Api:
             snaps = self.snaps()
             return 200, {'type': 'ev3-class-backup', 'exportedAt': time.strftime('%Y-%m-%dT%H:%M:%S'), 'works': self.all_works(sorted(snaps)),
                          'roster': self.roster()}
+        if path == '/api/solutions':
+            # answer key of the guided challenges (teacher preview); generated from tests/solutions_src.js
+            try:
+                sol = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '_solutions.json'), encoding='utf-8'))
+            except (OSError, ValueError):
+                sol = {}
+            return 200, {'solutions': sol}
         if path == '/api/backups':
             return 200, {'backups': [b for b in (jload(x) for x in self.r(['LRANGE', P + 'backups', 0, -1])[0] or []) if b][::-1]}
         if path == '/api/stats':

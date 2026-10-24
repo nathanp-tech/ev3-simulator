@@ -11,7 +11,7 @@ A web app to program a LEGO® MINDSTORMS® EV3 robot with blocks, in the style o
    - Keep the window open and the computer awake during the lesson.
    - The link changes at each launch: always take it from the dashboard.
 2. **Students:** open the link, choose their **class** then their **name** in the class lists (`js/roster.js`, one line per class, editable) (or scan the QR code), then choose:
-   - **Guided challenges:** 10 challenges, step by step;
+   - **Guided challenges:** 14 challenges in 5 categories (🚗 Motion, 👆 Touch sensor, 📏 Distance sensor, 🎨 Color sensor, 🧠 Combined for the most advanced), step by step;
    - **Free programming:** playground with 7 mats.
 3. **Next challenge:** when "Check my solution" reaches 80 % (`passScore` in `js/config.js`), the challenge is passed and the next one unlocks (**Next challenge →**). In the dashboard, **Unlock next** lets a stuck student move on.
 4. **Saving:** the work (all programs and progress) is **saved automatically on the class server** every few seconds ("☁️ Saved online" in the header).
@@ -130,6 +130,29 @@ The app can also run on Vercel, with a fixed address (no computer to keep on, no
 - Smaller image and sound libraries (18 images, 25 sounds).
 - My Blocks inputs are used through variable blocks of the same name (Blockly), not argument reporters as in Scratch.
 
+## The guided challenges
+
+| # | Category | Challenge | Sensors / skills |
+|---|---|---|---|
+| 1 | 🚗 Motion | First steps | drive 70 cm |
+| 2 | 🚗 Motion | The square | loops, turns |
+| 3 | 🚗 Motion | Park in the garage | forward, turn, forward |
+| 4 | 👆 Touch | Touch and come back | touch sensor, motor position |
+| 5 | 📏 Distance | Stop before the wall | ultrasonic |
+| 6 | 📏 Distance | Turn at the wall | ultrasonic twice, turn |
+| 7 | 🎨 Color | Stop on the line | color sensor |
+| 8 | 🎨 Color | Detect the color | color sensor, display |
+| 9 | 🎨 Color | Line following | color sensor, loops, conditions |
+| 10 | 🎨 Color | Count the lines | variables, display |
+| 11 | 🧠 Combined | Follow the color code | color decides the turn (if / else) |
+| 12 | 🧠 Combined | Line, then wall | color then ultrasonic |
+| 13 | 🧠 Combined | Bump three times | touch + color + loops |
+| 14 | 🧠 Combined | Maze | planning, My Blocks |
+
+No challenge needs the gyro sensor (turns are made with motor degrees). A challenge unlocks the next one in this order.
+
+**Answer key:** in the teacher preview (🎓 Student view), **🔑 Solution** shows the reference solution of the challenge (read-only, with "Load it into my program"). The solutions are written in `tests/solutions_src.js` and published in `api/_solutions.json`, which the server only sends with the teacher password (students never get it, even with the class code). After changing a solution, regenerate the file: open `tests/gen_solutions.html` through `server.py` on this computer and save the text shown into `api/_solutions.json`; `tests/selftest.html` checks that both are the same.
+
 ## Adding a challenge
 
 Challenges live in `js/world.js` (`CHALLENGES` array):
@@ -140,7 +163,7 @@ Challenges live in `js/world.js` (`CHALLENGES` array):
 
 Open `tests/selftest.html` through the server (for tests, run it with `EV3_DATA_DIR=/tmp/ev3test python3 server.py 8765` so that the class data in `data/` is never touched) to check that everything still works:
 
-- each challenge has a reference solution that must score 100 %;
+- each challenge has a reference solution (`tests/solutions_src.js`) that must score 100 %, and every challenge has a category;
 - an empty program must score 0 %;
 - language, wrong-port error, 2-sensor line follower and beacon follower tests.
 

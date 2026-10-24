@@ -407,13 +407,18 @@ function renderGuided() {
   if (App.exam) { renderExam(); return; }
   const ch = App.challenge, entry = Progress.ch(ch.id);
   const idx = CHALLENGES.indexOf(ch);
-  $('stepper').innerHTML = CHALLENGES.map((c, i) => {
-    const st = Progress.data.challenges[c.id].status;
-    const tip = { locked: 'locked', open: 'to do', validated: 'passed' }[st];
-    return `${i ? '<span class="step-line"></span>' : ''}<button class="step ${st}${c.id === ch.id ? ' current' : ''}" data-ch="${c.id}" title="${esc(c.title)} (${tip})">${st === 'validated' ? '✓' : st === 'locked' ? '🔒' : i + 1}</button>`;
+  // one group per category (Motion, Touch sensor, Distance sensor, Color sensor, Combined)
+  $('stepper').innerHTML = CATEGORIES.map((cat) => {
+    const steps = CHALLENGES.filter((c) => c.cat === cat.id).map((c, k) => {
+      const i = CHALLENGES.indexOf(c), st = Progress.data.challenges[c.id].status;
+      const tip = { locked: 'locked', open: 'to do', validated: 'passed' }[st];
+      return `${k ? '<span class="step-line"></span>' : ''}<button class="step ${st}${c.id === ch.id ? ' current' : ''}" data-ch="${c.id}" title="${esc(c.title)} (${tip})">${st === 'validated' ? '✓' : st === 'locked' ? '🔒' : i + 1}</button>`;
+    }).join('');
+    return steps ? `<div class="step-group${cat.id === ch.cat ? ' on' : ''}"><div class="step-cat">${cat.icon} ${esc(cat.label)}</div><div class="steps">${steps}</div></div>` : '';
   }).join('');
   $('challengeTitle').textContent = `Challenge ${idx + 1} / ${CHALLENGES.length}: ${ch.title.replace(/^\d+\.\s*/, '')}`;
-  $('challengeMeta').textContent = `Level ${ch.level}`;
+  $('challengeMeta').textContent = `${categoryOf(ch).icon} ${categoryOf(ch).label} · Level ${ch.level}`;
+  $('btnSolution').hidden = !App.preview;
   $('challengeDesc').innerHTML = `${ch.description}<span class="skills">Skills: ${esc(ch.skills)}</span>`;
   const hints = ch.hints || [];
   $('hintBox').innerHTML = hints.slice(0, entry.hints).map((h, i) => `<div class="hint-card">💡 <b>Hint ${i + 1}:</b> ${esc(h)}</div>`).join('');
@@ -854,7 +859,36 @@ function teacherLogin() {
 }
 
 function openModal(html) { $('modalBody').innerHTML = html; $('modal').hidden = false; }
-function closeModal() { $('modal').hidden = true; }
+function closeModal() {
+  $('modal').hidden = true;
+  $('modal').querySelector('.modal-box').style.maxWidth = '';
+  if (App.solWs) { App.solWs.dispose(); App.solWs = null; }
+}
+
+// Teacher preview: reference solution of the current challenge (sent by the server only with the teacher password).
+async function showSolution() {
+  if (!App.preview || !App.challenge) return;
+  let d = null;
+  try { d = await (await fetch('api/solutions', { cache: 'no-store', headers: { 'X-Teacher-Code': localStorage.getItem('ev3sim.teacherCode') || '' } })).json(); } catch (e) { /* offline */ }
+  const sol = d && d.solutions && d.solutions[App.challenge.id];
+  if (!sol) { toast('No solution available for this challenge.'); return; }
+  openModal(`<h2>🔑 Solution · ${esc(App.challenge.title)}</h2>
+    <p class="muted">Reference solution for the classic robot with the default ports (it scores 100 %). Other programs can be right too.</p>
+    <div id="solWs" style="height:400px;border:1px solid var(--border);border-radius:10px"></div>
+    <div class="actions" style="justify-content:flex-end;margin-top:8px"><button onclick="closeModal()">Close</button><button class="primary" id="solLoad">Load it into my program</button></div>`);
+  $('modal').querySelector('.modal-box').style.maxWidth = '1000px';
+  App.solWs = Blockly.inject('solWs', { readOnly: true, renderer: 'zelos', theme: EV3_THEME, media: 'lib/blockly/media/', zoom: { controls: true, wheel: true, startScale: 0.75 }, move: { scrollbars: true, drag: true, wheel: true } });
+  Blockly.serialization.workspaces.load(sol, App.solWs);
+  App.solWs.scrollCenter();
+  $('solLoad').onclick = () => {
+    if (!confirm('Replace your current program (in this preview) with the solution?')) return;
+    closeModal();
+    loadProgram(sol);
+    applyConfig(DEFAULT_CONFIG);
+    storeWorkspace();
+    toast('🔑 Solution loaded: click "Check my solution" to see it pass.');
+  };
+}
 
 function showHelp() {
   openModal(`
@@ -1292,6 +1326,7 @@ function init() {
 
   setupFll();
   $('wTeacher').onclick = teacherLogin;
+  $('btnSolution').onclick = showSolution;
   $('lowerToggle').onclick = () => showLower($('lowerPanel').hidden);
   showLower(LS.get(STORAGE + 'lowerOpen', false), false);
   setupClassroom();

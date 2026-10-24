@@ -158,6 +158,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._json({'error': 'not found'}, 404)
         if path.startswith('/api/'):
             return self._api('GET')
+        if path.startswith('/tests/') and not self._local():
+            return self._json({'error': 'not found'}, 404)  # the tests contain the answer key
         return super().do_GET()
 
     def do_POST(self):

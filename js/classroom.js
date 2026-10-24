@@ -182,7 +182,8 @@ function renderExam() {
     return `${i ? '<span class="step-line"></span>' : ''}<button class="step open${id === ch.id ? ' current' : ''}" data-ch="${esc(id)}" title="${esc(chTitle(id))}${s.best !== null ? ' · best ' + s.best + ' %' : ''}">${s.best !== null ? s.best + '%' : i + 1}</button>`;
   }).join('');
   $('challengeTitle').textContent = `📝 ${e.title} · ${k + 1} / ${e.challenges.length}: ${chTitle(ch.id)}`;
-  $('challengeMeta').textContent = `Level ${ch.level}`;
+  $('challengeMeta').textContent = `${categoryOf(ch).icon} ${categoryOf(ch).label} · Level ${ch.level}`;
+  $('btnSolution').hidden = true;
   $('challengeDesc').innerHTML = `${ch.description}<span class="skills">Skills: ${esc(ch.skills)}</span>`;
   const hints = e.hints ? ch.hints || [] : [];
   $('hintBox').innerHTML = hints.slice(0, slot.hints).map((h, i) => `<div class="hint-card">💡 <b>Hint ${i + 1}:</b> ${esc(h)}</div>`).join('');
