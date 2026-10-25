@@ -102,7 +102,7 @@
         <div class="panel-card share" id="shareBox" hidden>
           <div id="shareQr" class="share-qr"></div>
           <div class="share-text">
-            <div class="muted">Students open this link (any network, any computer):</div>
+            <div class="muted">Students open this link (any network, any computer) · class <select id="shareClass"></select></div>
             <div class="share-url" id="shareUrl"></div>
             <div id="shareCode" class="share-code"></div>
             <div class="actions"><button id="btnCopy">📋 Copy link</button><button id="btnShow" class="primary">📺 Show to the class</button></div>
@@ -146,7 +146,6 @@
           <h3 style="margin-top:0">Class settings</h3>
           <div class="settings">
             <label>Pass score for a challenge <input id="setPass" type="number" min="0" max="100" step="5"> %</label>
-            <label>Class code for students <input id="setStudentCode" autocomplete="off" style="width:120px"> <span class="muted">(needed to open the app; it is in the link and QR code of the live view. Empty = open to anyone with the address)</span></label>
             <label>Remind students to download their work after <input id="setReminder" type="number" min="1" max="240"> min <span class="muted">(only when they are offline)</span></label>
             <label><input id="setGuided" type="checkbox"> Allow <b>guided challenges</b></label>
             <label><input id="setFree" type="checkbox"> Allow <b>free programming</b></label>
@@ -168,6 +167,7 @@
             <h3 style="margin:0">Students</h3>
             <label>Class <select id="mgClass"><option value="">All</option></select></label>
             <span class="spacer" style="flex:1"></span>
+            <button id="mgSelAll" title="Select every student shown">☑ Select all</button><button id="mgSelNone">☐ None</button>
             <span class="muted" id="mgSelCount">0 selected</span>
             <select id="mgClassTo"></select><button id="mgClassSel">🏫 Set class</button>
             <select id="mgUnlockTo"></select><button id="mgUnlockSel">🔓 Unlock up to</button>
@@ -188,6 +188,7 @@
             <label class="btnlike">📥 Restore from a backup or work files<input type="file" id="restoreFiles" multiple accept=".json" hidden></label>
             <span class="spacer" style="flex:1"></span>
             <button id="btnResetAll" class="danger">⚠️ Reset everything (new class / new year)</button>
+            <button id="btnWipe" class="danger" title="Delete everything in the database except the class lists, the names and the settings">🧹 Empty the database</button>
           </div>
           <p class="muted" id="mgMsg">Before any reset or deletion, a copy of all data is kept for 180 days.</p>
         </div>

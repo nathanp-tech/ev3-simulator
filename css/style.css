@@ -479,3 +479,6 @@ body.preview #studentChip { background: #f0a020; color: #fff; }
 .steps { display: flex; align-items: center; gap: 4px; }
 .dot-gap { display: inline-block; width: 7px; }
 .exam-cat { grid-column: 1 / -1; font-weight: 700; margin-top: 6px; color: var(--muted); }
+.ctl-badge.code { background: #e8f0ff; color: #2c5aa0; font-variant-numeric: tabular-nums; }
+.code-row { margin: 4px 0; gap: 4px; }
+.code-row input { font-variant-numeric: tabular-nums; width: 90px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); }

@@ -13,15 +13,15 @@ CODE = sys.argv[2] if len(sys.argv) > 2 else '123456'
 fails = 0
 
 
-CLASS = ''  # class code, read from the server below
+CODES = {}  # class codes, read from the server below (one per class)
 
 
-def call(method, path, body=None, teacher=False, code=None, klass=None):
+def call(method, path, body=None, teacher=False, code=None, klass=None, cls='4E'):
     headers = {'Content-Type': 'application/json'}
     if teacher:
         headers['X-Teacher-Code'] = code or CODE
     else:
-        headers['X-Class-Code'] = CLASS if klass is None else klass
+        headers['X-Class-Code'] = CODES.get(cls, '') if klass is None else klass
     req = urllib.request.Request(BASE + path, data=json.dumps(body).encode() if body is not None else None, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -37,16 +37,6 @@ def check(ok, label, detail=''):
 
 
 A, B = 'apitest-a%x' % int(time.time() * 1000), 'apitest-b%x' % int(time.time() * 1000)
-# class code: strangers get nothing (names, work, saving)
-if CLASS and not TRUSTED:
-    check(info.get('studentCodeRequired') and 'studentCode' not in info, 'class code required, not revealed to students')
-    for path in ('/api/roster', '/api/work/find?name=a', '/api/classctl'):
-        s, r = call('GET', path, klass=''); check(s == 401, 'no code: ' + path + ' refused')
-    s, r = call('GET', '/api/roster', klass='wrong'); check(s == 401, 'wrong code refused')
-    s, r = call('POST', '/api/work', {'studentId': 'apitest-zzzz', 'name': 'x'}, klass=''); check(s == 401, 'no code: saving refused')
-    s, r = call('GET', '/api/join'); check(r.get('ok'), 'right code accepted')
-    s, r = call('GET', '/api/settings', klass=''); check('studentCode' not in r, 'public settings do not show the code')
-
 work = lambda sid, name, cls, rev=0, **kw: {'type': 'ev3-progress', 'studentId': sid, 'name': name, 'className': cls, 'adminRev': rev,
                                             'mode': 'guided', 'challenges': {'c1': {'status': 'open', 'program': {'p': 1}}}, 'free': {}, 'events': [], **kw}
 
@@ -54,15 +44,32 @@ s, r = call('GET', '/api/ping'); check(s == 200, 'ping')
 s, info = call('GET', '/api/info')
 TRUSTED = not info.get('needsCode')  # class server opened on its own computer: no password asked
 s, tinfo = call('GET', '/api/info', teacher=True)
-CLASS = tinfo.get('studentCode') or ''
+CODES = tinfo.get('classCodes') or {}
+CLASS = CODES.get('4E', '')
 
 
 def denied(status, label):
     if not TRUSTED:
         check(status in (401, 403), label)
 
+
+# class code: strangers get nothing (names, work, saving)
+if CLASS and not TRUSTED:
+    check(info.get('studentCodeRequired') and 'classCodes' not in info, 'class codes required, not revealed to students')
+    check(len(set(CODES.values())) == len(CODES) >= 2, 'one different code per class', CODES)
+    s, r = call('GET', '/api/join'); check(r.get('className') == '4E', 'the 4E code opens 4E', r)
+    s, r = call('GET', '/api/roster'); check(list(r['roster']) == ['4E'], 'with the 4E code, only the 4E list', list(r.get('roster', {})))
+    s, r = call('POST', '/api/work', {'studentId': 'apitest-x1', 'name': 'x', 'className': '4D', 'type': 'ev3-progress'}); check(s == 403, 'the 4E code cannot save in 4D')
+    for path in ('/api/roster', '/api/work/find?name=a', '/api/classctl'):
+        s, r = call('GET', path, klass=''); check(s == 401, 'no code: ' + path + ' refused')
+    s, r = call('GET', '/api/roster', klass='wrong'); check(s == 401, 'wrong code refused')
+    s, r = call('POST', '/api/work', {'studentId': 'apitest-zzzz', 'name': 'x'}, klass=''); check(s == 401, 'no code: saving refused')
+    s, r = call('GET', '/api/join'); check(r.get('ok'), 'right code accepted')
+    s, r = call('GET', '/api/settings', klass=''); check('studentCode' not in r, 'public settings do not show the code')
+
+
 s, r = call('POST', '/api/work', work(A, 'Adriana', '4E')); check(s == 200 and r.get('rev') == 0, 'student saves')
-s, r = call('POST', '/api/work', work(B, 'Adriana', '4D')); check(s == 200, 'second student with the same name, other class')
+s, r = call('POST', '/api/work', work(B, 'Adriana', '4D'), cls='4D'); check(s == 200, 'second student with the same name, other class')
 s, r = call('GET', '/api/work/find?name=adriana&className=4E'); check([m['studentId'] for m in r['matches']] == [A], 'find by class + name', r)
 s, r = call('GET', '/api/progress'); denied(s, 'dashboard needs the password')
 s, r = call('GET', '/api/progress', teacher=True, code='wrong'); denied(s, 'wrong password refused')
@@ -77,10 +84,10 @@ s, r = call('GET', '/api/student/' + A + '?className=4E'); check(r.get('helpDone
 s, r = call('GET', '/api/progress', teacher=True); check(not any(h['studentId'] == A for h in r['help']), 'queue emptied')
 
 # 3. roster (the class lists in place are put back at the end)
-s, r = call('GET', '/api/roster'); saved_roster = r.get('roster') or {}
+s, r = call('GET', '/api/roster', teacher=True); saved_roster = r.get('roster') or {}
 s, r = call('POST', '/api/roster', {'roster': {'4A': ['Frederik', ' Amiri '], '4C': ['Nina']}}); denied(s, 'roster change needs the password')
 s, r = call('POST', '/api/roster', {'roster': {'4A': ['Frederik', ' Amiri '], '4C': ['Nina']}}, teacher=True); check(s == 200, 'roster saved')
-s, r = call('GET', '/api/roster'); check(r['roster'] == {'4A': ['Frederik', 'Amiri'], '4C': ['Nina']}, 'roster read (public, cleaned)', r)
+s, r = call('GET', '/api/roster', teacher=True); check(r['roster'] == {'4A': ['Frederik', 'Amiri'], '4C': ['Nina']}, 'roster saved (cleaned)', r)
 
 # 5. history
 for i in range(30):
@@ -99,7 +106,7 @@ s, r = call('GET', '/api/notes/' + A); check(r['notes'][-1]['done'], 'note state
 # 7. class controls
 s, r = call('POST', '/api/classctl', {'classes': ['4E'], 'message': 'Look at the board', 'paused': True}, teacher=True); check(s == 200, 'message + pause')
 s, r = call('GET', '/api/student/' + A + '?className=4E'); c = r['classctl']; check(c.get('paused') and c['message']['text'] == 'Look at the board', 'student gets message + pause', c)
-s, r = call('GET', '/api/student/' + B + '?className=4D'); check(not r['classctl'].get('paused'), 'other class not paused')
+s, r = call('GET', '/api/student/' + B + '?className=4D', cls='4D'); check(not r['classctl'].get('paused'), 'other class not paused')
 s, r = call('POST', '/api/classctl', {'classes': ['4E'], 'paused': False, 'closed': True}, teacher=True)
 s, r = call('GET', '/api/classctl'); check(r['classes']['4E']['closed'] and not r['classes']['4E']['paused'], 'welcome page sees the closed class', r)
 call('POST', '/api/classctl', {'classes': ['4E'], 'closed': False, 'message': ''}, teacher=True)
@@ -133,10 +140,36 @@ s, r = call('GET', '/api/backups', teacher=True); check(r['backups'] and r['back
 s, r = call('GET', '/api/admin/backup?date=' + r['backups'][0]['date'], teacher=True); check(any(w['studentId'] == A for w in r['works']), 'download a daily backup')
 s, r = call('GET', '/api/stats', teacher=True); check(s == 200 and 'monthTotal' in r, 'database stats', r)
 
+# sync: one call, status only when the teacher changed something, presence
+s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4E', 'ver': None, 'live': {'status': 'editing'}})
+check(s == 200 and r.get('changed') and 'rev' in r, 'first sync gets the status', r)
+v1 = r.get('ver')
+s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4E', 'ver': v1, 'live': {'status': 'running'}})
+check(s == 200 and not r.get('changed'), 'same version: nothing to read again')
+s, r = call('GET', '/api/progress', teacher=True); me = [x for x in r['students'] if x['studentId'] == A][0]
+check((me.get('live') or {}).get('status') == 'running', 'presence seen by the teacher', me.get('live'))
+call('POST', '/api/validate', {'studentId': A, 'challengeId': 'c3'}, teacher=True)
+s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4E', 'ver': v1}); check(r.get('changed') and 'c3' in r.get('validated', []), 'teacher action: new version, status sent', r)
+s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4E', 'ver': r.get('ver'), 'work': work(A, 'Adriana', '4E', rev=1), 'live': {'status': 'editing'}}); check(s == 200 and r.get('savedAt'), 'sync saves the work')
+if not TRUSTED:
+    s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4D', 'ver': None, 'work': work(A, 'Adriana', '4D', rev=1)}); check(s == 403, 'sync: the 4E code cannot save in 4D')
+
 # delete
 s, r = call('POST', '/api/admin', {'action': 'delete', 'studentIds': [A, B]}, teacher=True); check(s == 200, 'delete the test students')
 s, r = call('POST', '/api/work', work(A, 'Adriana', '4E', rev=5)); check(s == 410, 'deleted student cannot come back (410)')
 s, r = call('GET', '/api/history/' + A + '/c1', teacher=True); check(r['versions'] == [], 'history deleted with the student')
+
+# empty the database (only on a test server: it deletes everything but the class lists and settings)
+if '--wipe' in sys.argv:
+    C = 'apitest-c%x' % int(time.time() * 1000)
+    old = work(C, 'Frederik', '4E'); old['createdAt'] = '2020-01-01T00:00:00.000Z'
+    call('POST', '/api/work', old)
+    s, r = call('GET', '/api/roster', teacher=True); before = r['roster']
+    s, r = call('POST', '/api/admin', {'action': 'wipe'}, teacher=True); check(s == 200 and r['deleted'] > 0, 'database emptied', r)
+    s, r = call('GET', '/api/progress', teacher=True); check(r['students'] == [], 'no student left')
+    s, r = call('GET', '/api/roster', teacher=True); check(r['roster'] == before, 'class lists kept')
+    s, t2 = call('GET', '/api/info', teacher=True); check(t2.get('classCodes', {}).get('4E') == CODES.get('4E'), 'class codes kept')
+    s, r = call('POST', '/api/work', old); check(s == 410, 'a browser with old work is sent back to the welcome page (410)')
 call('POST', '/api/roster', {'roster': saved_roster}, teacher=True)
 
 print(f'\n{"RESULT: ALL OK" if not fails else f"RESULT: {fails} FAILURE(S)"}')

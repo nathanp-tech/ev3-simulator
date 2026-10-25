@@ -8,7 +8,7 @@ const CR = {
   notes: [], applied: [], toasted: new Set(LS.get(STORAGE + 'notesSeen', [])),
   seenMsg: LS.get(STORAGE + 'seenMsg', ''),
   exam: null, examCh: null, examOver: false,
-  lastVersion: {},
+  lastVersion: {}, lastVersionAt: {}, myClass: null,
 };
 
 // ---------- Class lists (edited by the teacher in the dashboard; js/roster.js is the default) ----------
@@ -259,8 +259,11 @@ function recordVersion(kind, score) {
   const slot = currentSlotId();
   const program = Blockly.serialization.workspaces.save(ws);
   const key = JSON.stringify(program);
-  if (kind === 'run' && CR.lastVersion[slot] === key) return;
+  // a "Run" is kept only if the program changed and the last version of this program is older than 1 minute
+  const last = CR.lastVersionAt[slot] || 0;
+  if (kind === 'run' && (CR.lastVersion[slot] === key || Date.now() - last < 60000)) return;
   CR.lastVersion[slot] = key;
+  CR.lastVersionAt[slot] = Date.now();
   Sync.post('api/history', { studentId: Progress.data.studentId, slot, kind, score: score === undefined ? null : score, program, robot: sim.config, t: new Date().toISOString() });
 }
 

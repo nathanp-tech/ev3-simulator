@@ -15,7 +15,9 @@ Keys (prefix ev3:):
   classctl        hash   class -> {message, paused, closed, exam}
   exams           hash   exam id -> exam
   examres:EXAM    hash   student id -> exam result
-  settings               class settings
+  settings               class settings (also the class codes: classCodes {class: code})
+  ver                    counter increased by every teacher action: browsers re-read their status only when it changes
+  seen            hash   student id -> {t, live}: presence between two saves (cheap heartbeat)
   backup:DATE            compressed daily backup (30 days), index in "backups"
   archive:NAME           copy of everything before a delete / reset (180 days)
   stats:YYYY-MM   hash   day -> number of database commands (quota gauge, online only)
@@ -27,7 +29,7 @@ ID = re.compile(r'[\w-]{4,64}')
 SLOT = re.compile(r'[\w-]{1,40}')
 DEFAULT_SETTINGS = {'passScore': 80, 'saveReminderMinutes': 20, 'allowGuided': True, 'allowFree': True, 'allowFLL': True, 'dbQuota': 500000}
 # Online, browsers talk to the server less often than with the class server (database quotas).
-HOSTED_SYNC = {'syncPushSeconds': 8, 'syncHeartbeatSeconds': 20, 'syncPollSeconds': 8}
+HOSTED_SYNC = {'syncPushSeconds': 20, 'syncHeartbeatSeconds': 30, 'syncPollSeconds': 10, 'dashboardSeconds': 5}
 HISTORY_MAX = 25        # program versions kept per student and per program
 BACKUP_DAYS = 30
 EXAM_GRACE = 90         # seconds after the end of an exam during which results are still accepted
@@ -78,6 +80,14 @@ class MemStore:
                     self.exp.pop(k, None)
                     self._touch(k)
             return n
+        if op == 'INCR':
+            v = str(int(self.data.get(a[0], '0') if self._alive(a[0]) and isinstance(self.data.get(a[0]), str) else 0) + 1)
+            self.data[a[0]] = v
+            self._touch(a[0])
+            return int(v)
+        if op == 'KEYS':
+            import fnmatch
+            return [k for k in list(self.data) if self._alive(k) and fnmatch.fnmatchcase(k, a[0])]
         if op == 'EXISTS':
             return sum(1 for k in a if self._alive(k))
         if op == 'EXPIRE':
@@ -293,6 +303,7 @@ class Api:
     def __init__(self, store, teacher_code, hosted=False):
         self.store, self.teacher_code, self.hosted = store, teacher_code, hosted
         self.backup_checked = ''
+        self._codes, self._codes_t, self._raw_settings = {}, 0, {}
 
     # small wrappers
     def r(self, *cmds):
@@ -312,26 +323,57 @@ class Api:
 
     def settings(self, teacher=False):
         raw = self.get_json('settings', {}) or {}
-        s = {**DEFAULT_SETTINGS, **{k: v for k, v in raw.items() if k != 'studentCode'}}
+        s = {**DEFAULT_SETTINGS, **{k: v for k, v in raw.items() if k in DEFAULT_SETTINGS}}
         if teacher:
-            s['studentCode'] = self.student_code()
+            s['classCodes'] = self.class_codes(fresh=True)
         return {**s, **HOSTED_SYNC} if self.hosted else s
 
-    # Class code: students need it (link / QR code of the dashboard, or typed once) to use the app.
-    # Online, one is created automatically; the teacher can change it or remove it (empty = open).
-    def student_code(self):
-        raw = self.get_json('settings', {}) or {}
-        if 'studentCode' not in raw and self.hosted:
-            raw['studentCode'] = ''.join(random.choice('23456789') for _ in range(6))
-            self.r(['SET', P + 'settings', json.dumps(raw)])
-        return str(raw.get('studentCode') or '')
+    def bump(self):
+        self.r(['INCR', P + 'ver'])
 
-    def is_student(self, ctx, params, body=None):
+    # ---------- class codes: one per class; a code only opens its own class ----------
+    # (kept 60 s in memory: checking a code on every request must not cost database reads)
+    def class_codes(self, fresh=False):
+        if not fresh and self._codes_t and time.time() - self._codes_t < 60:
+            return self._codes
+        raw = self.get_json('settings', {}) or {}
+        codes = {c: str(v) for c, v in (raw.get('classCodes') or {}).items() if v}
+        roster = self.roster()
+        changed = False
+        for c in roster:
+            if not codes.get(c):
+                used = set(codes.values())
+                code = ''.join(random.choice('23456789') for _ in range(6))
+                while code in used:
+                    code = ''.join(random.choice('23456789') for _ in range(6))
+                codes[c] = code
+                changed = True
+        if changed or 'studentCode' in raw:
+            raw['classCodes'] = codes
+            raw.pop('studentCode', None)
+            self.r(['SET', P + 'settings', json.dumps(raw)])
+        self._codes, self._codes_t, self._raw_settings = codes, time.time(), raw
+        return codes
+
+    def grant(self, ctx, params, body=None):
+        """'*' for the teacher (or the class server's own computer), the class of the code for a student, None otherwise."""
         if ctx.get('local') or self.is_teacher(ctx, params, body):
-            return True
-        code = self.student_code()
+            return '*'
         given = str(ctx['headers'].get('X-Class-Code') or (params or {}).get('c') or (body or {}).get('classCode') or '').strip()
-        return not code or given == code
+        if not given:
+            return None
+        for fresh in (False, True):
+            if fresh and time.time() - self._codes_t < 3:
+                break
+            for c, code in self.class_codes(fresh).items():
+                if code == given:
+                    return c
+        return None
+
+    def wiped_after(self, work):
+        """True when this work was created before the last "empty the database"."""
+        w, c = (self._raw_settings or {}).get('wipedAt'), work.get('createdAt')
+        return bool(w and c) and str(c) < w
 
     def snaps(self):
         return hash_dict(self.r(['HGETALL', P + 'snap'])[0])
@@ -365,7 +407,7 @@ class Api:
         return 'archive ' + name
 
     def remove_cmds(self, sid):
-        return [['HDEL', P + 'snap', sid], ['DEL', P + 'work:' + sid, P + 'hist:' + sid, P + 'notes:' + sid], ['HDEL', P + 'help', sid],
+        return [['HDEL', P + 'snap', sid], ['HDEL', P + 'seen', sid], ['DEL', P + 'work:' + sid, P + 'hist:' + sid, P + 'notes:' + sid], ['HDEL', P + 'help', sid],
                 ['SET', P + 'st:' + sid, json.dumps({'deleted': True})]]
 
     def roster(self):
@@ -398,29 +440,31 @@ class Api:
         if path == '/api/info':
             code = str(params.get('code', '')).strip()
             info = {**ctx.get('info', {}), 'hosted': self.hosted, 'needsCode': not ctx.get('local'), 'teacher': teacher,
-                    'passwordOk': code == self.teacher_code, 'codeConfigured': True, 'studentCodeRequired': bool(self.student_code()) and not ctx.get('local')}
+                    'passwordOk': code == self.teacher_code, 'codeConfigured': True, 'studentCodeRequired': not ctx.get('local')}
             if teacher:
-                info['studentCode'] = self.student_code()
+                info['classCodes'] = self.class_codes(fresh=True)
             return 200, info
         if path == '/api/settings':
             return 200, self.settings(teacher)
+        g = self.grant(ctx, params)
         if path == '/api/join':
-            return 200, {'ok': self.is_student(ctx, params)}
-        # ----- students of the class (class code) -----
-        if not self.is_student(ctx, params):
+            return 200, {'ok': g is not None, 'className': g if g not in (None, '*') else None}
+        # ----- students of a class (class code): they only see their own class -----
+        if g is None:
             return 401, {'error': 'class code required', 'needCode': True}
         if path == '/api/roster':
-            return 200, {'roster': self.roster()}
+            roster = self.roster()
+            return 200, {'roster': roster if g == '*' else {g: roster.get(g, [])}}
         if path == '/api/classctl':
-            # public: what the welcome page needs (closed classes, running exams)
+            # what the welcome page needs (closed classes, running exams)
             ctl = hash_dict(self.r(['HGETALL', P + 'classctl'])[0])
             return 200, {'classes': {c: {'closed': bool(v.get('closed')), 'paused': bool(v.get('paused')), 'exam': bool((v.get('exam') or {}).get('active'))}
-                                     for c, v in ctl.items() if v}, 'now': time.time()}
+                                     for c, v in ctl.items() if v and (g == '*' or c == g)}, 'now': time.time()}
         if path == '/api/work/find' or path == '/api/names':
             snaps = [s for s in self.snaps().values() if s]
             if path == '/api/work/find':
                 # A student = class + first name (accents, case and spaces ignored). Old work without a class still matches.
-                name, cls = norm(params.get('name', '')), norm(params.get('className', ''))
+                name, cls = norm(params.get('name', '')), norm(params.get('className', '') if g == '*' else g)
                 found = sorted((s for s in snaps if norm(s.get('name')) == name and (not cls or norm(s.get('className')) in ('', cls))),
                                key=lambda s: s.get('updatedAt', ''), reverse=True)
                 return 200, {'matches': [{'studentId': s['studentId'], 'name': s.get('name'), 'className': s.get('className'), 'mode': s.get('mode'),
@@ -437,7 +481,7 @@ class Api:
         m = re.fullmatch(r'/api/student/([\w-]+)', path)
         if m:
             # Polled by the student's browser: teacher decisions + class controls (message, pause, closed, exam).
-            sid, cls = m.group(1), str(params.get('className', ''))
+            sid, cls = m.group(1), str(params.get('className', '') if g == '*' else g)
             raw = self.r(['GET', P + 'st:' + sid], ['HGET', P + 'classctl', cls or '_none'])
             st = jload(raw[0], {}) or {}
             return 200, {'validated': st.get('validated', []), 'rev': st.get('rev', 0), 'deleted': bool(st.get('deleted')),
@@ -449,8 +493,13 @@ class Api:
         if not teacher:
             return 403, {'error': 'teacher code required'}
         if path == '/api/progress':
-            raw = self.r(['HGETALL', P + 'snap'], ['HGETALL', P + 'help'], ['HGETALL', P + 'classctl'])
-            out = {'students': list(hash_dict(raw[0]).values()), 'help': [h for h in hash_dict(raw[1]).values() if h],
+            raw = self.r(['HGETALL', P + 'snap'], ['HGETALL', P + 'help'], ['HGETALL', P + 'classctl'], ['HGETALL', P + 'seen'])
+            snaps, seen = hash_dict(raw[0]), hash_dict(raw[3])
+            for sid, s in snaps.items():
+                pr = seen.get(sid)
+                if s and pr and pr.get('t', 0) > s.get('receivedAt', 0):  # presence newer than the last save
+                    s['receivedAt'], s['live'] = pr['t'], pr.get('live') or s.get('live')
+            out = {'students': [s for s in snaps.values() if s], 'help': [h for h in hash_dict(raw[1]).values() if h],
                    'classctl': hash_dict(raw[2]), 'now': time.time()}
             try:
                 self.make_backup()  # once a day (also done by the Vercel cron job)
@@ -494,16 +543,62 @@ class Api:
             return 200, {'exam': jload(raw[0]), 'results': [x for x in hash_dict(raw[1]).values() if x], 'now': time.time()}
         return 404, {'error': 'not found'}
 
+    BUMPING = ('/api/validate', '/api/forget', '/api/settings', '/api/roster', '/api/classctl', '/api/exam', '/api/admin')
+
     def post(self, path, data, ctx):
+        code, out = self._post(path, data, ctx)
+        # every teacher change that a student's browser must see increases the version counter
+        if code == 200 and self.is_teacher(ctx, None, data) and (path in self.BUMPING or (path == '/api/notes' and data.get('action') in ('add', 'delete'))
+                                                                 or (path == '/api/help' and data.get('by') == 'teacher')):
+            self.bump()
+        return code, out
+
+    def _post(self, path, data, ctx):
         teacher = self.is_teacher(ctx, None, data)
-        if not self.is_student(ctx, None, data):
+        g = self.grant(ctx, None, data)
+        if g is None:
             return 401, {'error': 'class code required', 'needCode': True}
+        if path == '/api/sync':
+            # The student's browser, every few seconds. Reads the status only when the teacher changed something
+            # (version counter); saves the work only when it changed; otherwise just says "I am here".
+            sid = str(data.get('studentId', ''))
+            if not ID.fullmatch(sid):
+                return 400, {'error': 'bad id'}
+            work = data.get('work')
+            cls = g if g != '*' else str(data.get('className') or '')
+            if work is not None and g != '*' and (work.get('className') or '') != g:
+                return 403, {'error': 'this code is for another class'}
+            sv = str(self.r(['GET', P + 'ver'])[0] or '0')
+            out = {'ok': True, 'ver': sv, 'now': time.time()}
+            st = None
+            if str(data.get('ver') or '') != sv:
+                raw = self.r(['GET', P + 'st:' + sid], ['HGET', P + 'classctl', cls or '_none'])
+                st = jload(raw[0], {}) or {}
+                self.class_codes(fresh=True)  # also refreshes the settings (wipedAt)
+                out.update({'validated': st.get('validated', []), 'rev': st.get('rev', 0), 'deleted': bool(st.get('deleted')),
+                            'helpDone': st.get('helpDone', 0), 'notesRev': st.get('notesRev', 0), 'classctl': jload(raw[1], {}) or {}, 'changed': True})
+                if st.get('deleted') or self.wiped_after(data):  # data.createdAt: the database was emptied since
+                    return 410, {'error': 'deleted by the teacher', 'deleted': True}
+            if work is not None:
+                if self.wiped_after(work):
+                    return 410, {'error': 'the database was emptied', 'deleted': True}
+                if st is not None and int(work.get('adminRev') or 0) < st.get('rev', 0):
+                    return 409, {'error': 'changed by the teacher', 'rev': st.get('rev', 0)}
+                snap = strip_programs(work)
+                snap['live'], snap['receivedAt'] = data.get('live'), time.time()
+                self.r(['HSET', P + 'snap', sid, json.dumps(snap)], ['SET', P + 'work:' + sid, json.dumps(work)])
+                out['savedAt'] = time.time()
+            elif data.get('live') is not None:
+                self.r(['HSET', P + 'seen', sid, json.dumps({'t': time.time(), 'live': data['live']})])
+            return 200, out
         if path in ('/api/progress', '/api/work'):
             sid = str(data.get('studentId', ''))
             if not ID.fullmatch(sid):
                 return 400, {'error': 'bad id'}
+            if g != '*' and (data.get('className') or '') != g:
+                return 403, {'error': 'this code is for another class'}
             st = self.status(sid)
-            if st.get('deleted'):
+            if st.get('deleted') or self.wiped_after(data):
                 return 410, {'error': 'deleted by the teacher', 'deleted': True}
             if int(data.get('adminRev') or 0) < st.get('rev', 0):
                 return 409, {'error': 'changed by the teacher', 'rev': st.get('rev', 0)}
@@ -521,7 +616,7 @@ class Api:
             if not ID.fullmatch(sid):
                 return 400, {'error': 'bad id'}
             if data.get('on'):
-                req = {'studentId': sid, 'name': clean_text(data.get('name'), 60), 'className': clean_text(data.get('className'), 20),
+                req = {'studentId': sid, 'name': clean_text(data.get('name'), 60), 'className': clean_text(data.get('className') if g == '*' else g, 20),
                        'where': clean_text(data.get('where'), 120), 'message': clean_text(data.get('message'), 200), 'since': time.time()}
                 self.r(['HSET', P + 'help', sid, json.dumps(req)])
                 return 200, {'ok': True, 'since': req['since']}
@@ -574,11 +669,11 @@ class Api:
                 return 400, {'error': 'bad request'}
             raw = self.r(['HGET', P + 'exams', eid], ['HGET', P + 'examres:' + eid, sid])
             exam, res = jload(raw[0]), jload(raw[1], {}) or {}
-            if not exam or chid not in exam.get('challenges', []):
+            if not exam or chid not in exam.get('challenges', []) or (g != '*' and exam.get('className') != g):
                 return 404, {'error': 'no such exam'}
             if time.time() > (exam.get('stoppedAt') or exam['endsAt']) + EXAM_GRACE:
                 return 409, {'error': 'the exam is over'}
-            res.update({'studentId': sid, 'name': clean_text(data.get('name'), 60), 'className': clean_text(data.get('className'), 20), 'updatedAt': time.time()})
+            res.update({'studentId': sid, 'name': clean_text(data.get('name'), 60), 'className': exam.get('className'), 'updatedAt': time.time()})
             best = res.setdefault('challenges', {}).get(chid)
             score = max(0, min(100, int(data.get('score') or 0)))
             if not best or score > best.get('score', -1):
@@ -602,9 +697,15 @@ class Api:
         if path == '/api/settings':
             cur = {**DEFAULT_SETTINGS, **(self.get_json('settings', {}) or {})}
             new = {**cur, **{k: data[k] for k in DEFAULT_SETTINGS if k in data}}
-            if 'studentCode' in data:
-                new['studentCode'] = re.sub(r'\s+', '', str(data['studentCode'] or ''))[:30]
+            if isinstance(data.get('classCodes'), dict):
+                codes = {clean_text(c, 20): re.sub(r'\s+', '', str(v or ''))[:20] for c, v in data['classCodes'].items()}
+                vals = [v for v in codes.values() if v]
+                if len(vals) != len(set(vals)) or any(len(v) < 3 for v in vals):
+                    return 400, {'error': 'each class needs its own code (at least 3 characters)'}
+                new['classCodes'] = {**(new.get('classCodes') or {}), **codes}
+            new.pop('studentCode', None)
             self.r(['SET', P + 'settings', json.dumps(new)])
+            self._codes_t = 0
             return 200, self.settings(True)
         if path == '/api/roster':
             roster = data.get('roster')
@@ -612,7 +713,8 @@ class Api:
                 return 400, {'error': 'bad roster'}
             clean = {clean_text(c, 20): [clean_text(n, 60) for n in names if clean_text(n, 60)] for c, names in roster.items() if clean_text(c, 20) and isinstance(names, list)}
             self.r(['SET', P + 'roster', json.dumps(clean)])
-            return 200, {'ok': True, 'roster': clean}
+            self._codes_t = 0
+            return 200, {'ok': True, 'roster': clean, 'classCodes': self.class_codes(fresh=True)}
         if path == '/api/classctl':
             # Live commands for one or several classes: message, pause the screens, open / close the access.
             classes = [clean_text(c, 20) for c in (data.get('classes') or [data.get('className')]) if clean_text(c, 20)]
@@ -722,6 +824,16 @@ class Api:
                 for i in range(0, len(cmds), 60):
                     self.r(*cmds[i:i + 60])
                 return 200, {'ok': True, 'restored': len(works)}
+            if action == 'wipe':
+                # Empty the database: everything goes, except the class lists (names) and the settings (class codes…).
+                keys = [k for k in (self.r(['KEYS', P + '*'])[0] or []) if k not in (P + 'roster', P + 'settings')]
+                for i in range(0, len(keys), 200):
+                    self.r(['DEL', *keys[i:i + 200]])
+                raw = self.get_json('settings', {}) or {}
+                raw['wipedAt'] = time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime()) + '.999Z'
+                self.r(['SET', P + 'settings', json.dumps(raw)])
+                self._codes_t = 0
+                return 200, {'ok': True, 'deleted': len(keys)}
             if action == 'reset-all':
                 dest = self.archive('reset')
                 cmds = [c for sid in self.snaps() for c in self.remove_cmds(sid)] + [['DEL', P + 'help']]

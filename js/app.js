@@ -154,7 +154,9 @@ async function checkClassCode() {
     history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
   }
   const info = await Sync.getJson('api/info');
-  const ok = !info || !info.studentCodeRequired || (ClassCode.get() && (await Sync.getJson('api/join') || {}).ok);
+  const join = info && info.studentCodeRequired && ClassCode.get() ? await Sync.getJson('api/join') : null;
+  const ok = !info || !info.studentCodeRequired || !!(join && join.ok);
+  CR.myClass = join && join.className;
   $('wCodeStep').hidden = !!ok;
   $('wPick').hidden = !ok;
   $('wModeTitle').hidden = $('wChoices').hidden = !ok;
@@ -167,7 +169,7 @@ async function submitClassCode() {
   ClassCode.set(c);
   if ((await Sync.getJson('api/join') || {}).ok) { $('wError').textContent = ''; showWelcome(); return; }
   ClassCode.set('');
-  $('wError').textContent = 'This code is not right. Ask your teacher.';
+  $('wError').textContent = 'This code is not right. Each class has its own code: ask your teacher.';
   $('wCode').select();
 }
 // The teacher changed the code during a session: ask for the new one (the work stays on this computer meanwhile).
@@ -192,6 +194,7 @@ function pickClass(cls) {
   $('wClass').value = cls;
   $('wName').value = '';
   const roster = currentRoster();
+  if (!cls && Object.keys(roster).length === 1) cls = Object.keys(roster)[0]; // the class code opens one class
   if (cls && (!roster[cls] || classClosed(cls))) cls = '';
   $('wClass').value = cls;
   $('wClasses').innerHTML = !Object.keys(roster).length ? '<span class="muted">Loading the classes…</span>' : Object.keys(roster).sort(byName).map((c) => classClosed(c)
@@ -1257,6 +1260,7 @@ function init() {
   document.querySelectorAll('.choice').forEach((b) => { b.onclick = () => chooseMode(b.dataset.mode); });
   $('wChange').onclick = () => pickClass($('wClass').value);
   $('wCodeGo').onclick = submitClassCode;
+  $('wOtherCode').onclick = () => { ClassCode.set(''); CR.roster = null; showWelcome(); };
   $('wCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitClassCode(); });
   $('wOpen').onclick = () => $('wFile').click();
   $('wFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openWorkFile(f); };
@@ -1320,7 +1324,7 @@ function init() {
   Sync.onRemoteChange = onRemoteChange;
   Sync.onDeleted = onDeleted;
   Sync.loadSettings().then(applyClassSettings);
-  setInterval(() => Sync.loadSettings().then(applyClassSettings), 30000);
+  Sync.onSettingsChanged = () => Sync.loadSettings().then(applyClassSettings); // only when the teacher changed something
   Sync.onStatus = () => updateSaveStatus();
   Sync.start(() => liveState());
 

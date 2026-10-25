@@ -66,6 +66,14 @@ const Progress = {
     return obj;
   },
 
+  // Only the essential is saved: recent activity, the last checks, the last FLL matches (programs are kept).
+  trim() {
+    const d = this.data;
+    if (!d) return;
+    if (d.events.length > 300) d.events.splice(0, d.events.length - 300);
+    for (const c of Object.values(d.challenges)) if (c.gradings && c.gradings.length > 20) c.gradings.splice(0, c.gradings.length - 20);
+    if (d.fll && d.fll.matches && d.fll.matches.length > 30) d.fll.matches.splice(0, d.fll.matches.length - 30);
+  },
   restoreLocal() {
     try { const s = localStorage.getItem(this.key); return s ? JSON.parse(s) : null; } catch (e) { return null; }
   },
@@ -84,7 +92,7 @@ const Progress = {
     if (ch) ev.ch = ch;
     if (detail !== undefined && detail !== null) ev.d = typeof detail === 'string' ? detail.slice(0, 200) : detail;
     this.data.events.push(ev);
-    if (this.data.events.length > 800) this.data.events.splice(0, this.data.events.length - 800);
+    if (this.data.events.length > 300) this.data.events.splice(0, this.data.events.length - 300);
   },
   count(map, key) { map[key] = (map[key] || 0) + 1; },
 
@@ -225,22 +233,39 @@ const Sync = {
   },
   // Saves the whole work (programs included) on the class server. Also tells the teacher what the student is doing.
   disabled: false, // teacher preview: nothing goes to the class server
-  async push(live, force = false) {
+  ver: null, // version of the teacher's decisions last seen (the server only sends them again when it changes)
+  lastSync: 0, lastPresence: 0, busy: false,
+  // One call every few seconds: saves the work if it changed (at most every syncPushSeconds), otherwise only says
+  // "I am here" (every syncHeartbeatSeconds); gets the teacher's decisions only when they changed.
+  async sync(live, { force = false } = {}) {
     if (this.disabled || !this.online || !Progress.data) return false;
-    // Intervals: fast on the class server, slower online (CLASSROOM.sync* come from the hosted server's settings).
-    if (!force && Date.now() - this.lastPush < (Progress.dirty ? (CLASSROOM.syncPushSeconds || 4) : (CLASSROOM.syncHeartbeatSeconds || 15)) * 1000 - 50) return true;
-    this.lastPush = Date.now();
+    if (this.busy) { if (!force) return true; while (this.busy) await new Promise((r) => setTimeout(r, 50)); }
+    const now = Date.now();
+    const sendWork = force || (Progress.dirty && now - this.lastPush >= (CLASSROOM.syncPushSeconds || 4) * 1000 - 50);
+    const presence = !sendWork && now - this.lastPresence >= (CLASSROOM.syncHeartbeatSeconds || 15) * 1000 - 50;
     const wasDirty = Progress.dirty;
-    Progress.dirty = false;
+    this.busy = true;
+    if (sendWork) { Progress.trim(); Progress.dirty = false; }
     try {
-      const r = await sfetch('api/work', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...Progress.data, live }) });
-      if (r.status === 401) { Progress.dirty = true; return false; }
+      const body = { studentId: Progress.data.studentId, className: Progress.data.className || '', ver: this.ver, createdAt: Progress.data.createdAt };
+      if (sendWork || presence) body.live = live;
+      if (sendWork) body.work = Progress.data;
+      const r = await sfetch('api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (r.status === 410) { if (this.onDeleted) this.onDeleted(); return false; }
       if (r.status === 409) { if (this.onRemoteChange) this.onRemoteChange(); return false; }
-      if (!r.ok) throw new Error('save failed');
-      this.savedAt = Date.now();
-      const d = await r.json().catch(() => ({}));
-      if (d.rev !== undefined) { this.lastPoll = Date.now(); this.applyStatus(d); } // the answer replaces a poll
+      if (r.status === 401 || r.status === 403) { Progress.dirty = Progress.dirty || wasDirty; return false; }
+      if (!r.ok) throw new Error('sync failed');
+      const d = await r.json();
+      if (sendWork) { this.lastPush = now; this.savedAt = Date.now(); }
+      if (sendWork || presence) this.lastPresence = now;
+      if (d.now) this.serverOffset = d.now * 1000 - Date.now();
+      const first = this.ver === null;
+      this.ver = d.ver;
+      if (d.changed) {
+        this.applyStatus(d);
+        if (this.onClassCtl) this.onClassCtl(d.classctl || {});
+        if (!first && this.onSettingsChanged) this.onSettingsChanged();
+      }
       if (this.onStatus) this.onStatus(true);
       return true;
     } catch (e) {
@@ -248,8 +273,9 @@ const Sync = {
       this.online = false;
       if (this.onStatus) this.onStatus(false);
       return false;
-    }
+    } finally { this.busy = false; }
   },
+  push(live, force = false) { return this.sync(live, { force }); },
   savedRecently(sec = 30) { return this.online && Date.now() - this.savedAt < sec * 1000 && !Progress.dirty; },
   async find(name, className) {
     if (!this.online) return [];
@@ -263,19 +289,6 @@ const Sync = {
     const r = await sfetch('api/work/' + encodeURIComponent(id));
     if (!r.ok) throw new Error('work not found');
     return r.json();
-  },
-  lastPoll: 0,
-  async poll() {
-    if (this.disabled || !this.online || !Progress.data) return;
-    if (Date.now() - this.lastPoll < (CLASSROOM.syncPollSeconds || 3) * 1000 - 50) return;
-    this.lastPoll = Date.now();
-    try {
-      const r = await sfetch(`api/student/${Progress.data.studentId}?className=${encodeURIComponent(Progress.data.className || '')}`, { cache: 'no-store' });
-      const d = await r.json();
-      this.applyStatus(d);
-      if (d.now) this.serverOffset = d.now * 1000 - Date.now();
-      if (this.onClassCtl) this.onClassCtl(d.classctl || {});
-    } catch (e) { /* offline */ }
   },
   // Server time (ms): exam countdowns use the server clock, not the student's computer clock.
   serverOffset: 0,
@@ -312,7 +325,10 @@ const Sync = {
   start(getLive) {
     this.ping();
     setInterval(() => { if (!this.online) this.ping(); }, 15000);
-    setInterval(() => this.push(getLive()), 1000); // push() and poll() decide themselves when to talk to the server
-    setInterval(() => this.poll(), 1000);
+    setInterval(() => {
+      if (Date.now() - this.lastSync < (CLASSROOM.syncPollSeconds || 3) * 1000 - 50) return;
+      this.lastSync = Date.now();
+      this.sync(getLive());
+    }, 1000);
   },
 };

@@ -24,7 +24,7 @@ function dotsHtml(s, ref) {
 }
 
 // A browser sends news at least every 15 s (class server) or 20 s (online): 45 s without news = offline.
-const ONLINE_SECONDS = 45;
+const ONLINE_SECONDS = 60; // online, a browser says "I am here" every 30 s
 const isOnline = (s) => T.serverNow - (s.receivedAt || 0) <= ONLINE_SECONDS && !(s.live && s.live.status === 'left');
 function liveStatus(s) {
   const age = T.serverNow - (s.receivedAt || 0);
@@ -79,7 +79,10 @@ async function startLive() {
     showServerInfo(); // now with the teacher password: the class code is in the link
     await refreshLive();
     clearInterval(T.liveTimer);
-    T.liveTimer = setInterval(refreshLive, 3000);
+    // every 3 s with the class server, every 5 s online (database quota)
+    const loop = () => { T.liveTimer = setTimeout(async () => { await refreshLive(); loop(); }, T.hosted ? 5000 : 3000); };
+    clearTimeout(T.liveTimer);
+    loop();
   } catch (e) {
     $('serverInfo').innerHTML = `<p>⚠️ The live dashboard needs the class server. On this computer, run <code>python3 server.py</code> (or double-click <code>start.command</code>) and open this page from the address it shows. You can still use <b>Report from saved files</b>.</p>`;
   }
@@ -123,14 +126,14 @@ function fillClassFilter(sel, list, allLabel) {
 }
 const inClassFilter = (s, f) => !f || (f === '-' ? !s.className : (s.className || '') === f);
 // Rows grouped under one header per class. items: [{ s, html }] already sorted inside each class.
-function groupedHtml(items, cols) {
+function groupedHtml(items, cols, { selectable = false } = {}) {
   const groups = new Map();
   for (const it of items.slice().sort((a, b) => classRank(a.s.className) - classRank(b.s.className) || (a.s.className || '').localeCompare(b.s.className || ''))) {
     const k = it.s.className || '';
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(it.html);
   }
-  return [...groups].map(([c, rows]) => `<tr class="grp"><td colspan="${cols}">🏫 ${esc(classLabel(c))} <span class="muted">· ${rows.length} student${rows.length > 1 ? 's' : ''}</span></td></tr>${rows.join('')}`).join('');
+  return [...groups].map(([c, rows]) => `<tr class="grp"><td colspan="${cols}">${selectable ? `<input type="checkbox" class="mg-grp" data-cls="${esc(c)}" title="Select every student of ${esc(classLabel(c))}"> ` : ''}🏫 ${esc(classLabel(c))} <span class="muted">· ${rows.length} student${rows.length > 1 ? 's' : ''}</span></td></tr>${rows.join('')}`).join('');
 }
 
 // Live class: every student of the class lists (js/roster.js), one block per class, connected or not.
@@ -180,23 +183,32 @@ function qrSvg(text) {
   qr.make();
   return qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
 }
-function showShare(url) {
+// One link (and QR code) per class: it carries the code of that class, which only opens that class.
+function showShare(base) {
+  T.publicBase = base;
   $('shareBox').hidden = false;
+  const classes = Object.keys(T.classCodes || {}).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const sel = $('shareClass');
+  const cur = sel.value && classes.includes(sel.value) ? sel.value : classes[0] || '';
+  sel.innerHTML = classes.map((c) => `<option value="${esc(c)}"${c === cur ? ' selected' : ''}>${esc(c)}</option>`).join('');
+  sel.hidden = !classes.length;
+  const code = (T.classCodes || {})[cur] || '';
+  const url = base + (code ? '?c=' + encodeURIComponent(code) : '');
   $('shareUrl').textContent = url;
-  $('shareCode').innerHTML = T.studentCode ? `Class code: <b>${esc(T.studentCode)}</b> <span class="muted">(already in the link and the QR code; students who open the site without it must type it once)</span>` : '<span class="muted">No class code: anyone with the address can open the app (Manage → Class settings).</span>';
+  $('shareCode').innerHTML = code ? `Code of <b>${esc(cur)}</b>: <b>${esc(code)}</b> <span class="muted">(in the link and the QR code; it only opens ${esc(cur)}. Each class has its own code: Manage → Class lists)</span>` : '';
   $('shareQr').innerHTML = qrSvg(url);
   $('btnCopy').onclick = () => navigator.clipboard.writeText(url).then(() => { $('btnCopy').textContent = '✓ Copied'; });
-  $('btnShow').onclick = () => openModal(`<div class="big-share"><h2>Open the EV3 Simulator</h2>${qrSvg(url)}<div class="share-url">${esc(url)}</div><p class="muted">Scan the QR code or type the link${T.studentCode ? ` (class code <b>${esc(T.studentCode)}</b>)` : ''}, then choose your class and your name.</p></div>`);
+  $('btnShow').onclick = () => openModal(`<div class="big-share"><h2>${esc(cur)} · Open the EV3 Simulator</h2>${qrSvg(url)}<div class="share-url">${esc(url)}</div><p class="muted">Scan the QR code or type the link${code ? ` (class code <b>${esc(code)}</b>)` : ''}, then choose your name.</p></div>`);
 }
 
 async function showServerInfo() {
   try {
     const r = await tfetch('api/info');
-    const { ips, host, port, publicUrl, hosted, studentCode } = await r.json();
+    const { ips, host, port, publicUrl, hosted, classCodes } = await r.json();
     T.hosted = !!hosted;
-    T.studentCode = studentCode || '';
-    // the link and the QR code carry the class code: students who scan them get in directly
-    if (publicUrl) showShare(publicUrl + (T.studentCode ? '?c=' + encodeURIComponent(T.studentCode) : ''));
+    T.classCodes = classCodes || {};
+    // the link and the QR code carry the code of the class: students who scan them get in directly
+    if (publicUrl) showShare(publicUrl);
     else setTimeout(showServerInfo, 3000); // the public link takes a few seconds to open
     const urls = ips.map((ip) => `<code>http://${ip}:${port}/</code>`).concat(host ? [`<code>http://${host}:${port}/</code>`] : []).join(' or ');
     $('serverInfo').innerHTML = publicUrl ? '' : `<p>✅ Class server running. <b>No public link yet</b>: it appears here a few seconds after starting <code>start.command</code>. Same Wi-Fi only: ${urls}</p>`;
@@ -331,7 +343,6 @@ const studentLabel = (s) => `${s.name}${s.className ? ' (' + s.className + ')' :
 async function loadSettingsForm() {
   try {
     const st = await (await tfetch('api/settings')).json();
-    $('setStudentCode').value = st.studentCode || '';
     $('setPass').value = st.passScore;
     $('setReminder').value = st.saveReminderMinutes;
     $('setGuided').checked = st.allowGuided !== false;
@@ -341,7 +352,7 @@ async function loadSettingsForm() {
 }
 async function saveSettings() {
   if (!$('setGuided').checked && !$('setFree').checked && !$('setFLL').checked) { $('settingsMsg').textContent = 'At least one mode must be allowed.'; return; }
-  const body = { studentCode: $('setStudentCode').value.trim(), passScore: Number($('setPass').value) || 80, saveReminderMinutes: Number($('setReminder').value) || 20, allowGuided: $('setGuided').checked, allowFree: $('setFree').checked, allowFLL: $('setFLL').checked };
+  const body = { passScore: Number($('setPass').value) || 80, saveReminderMinutes: Number($('setReminder').value) || 20, allowGuided: $('setGuided').checked, allowFree: $('setFree').checked, allowFLL: $('setFLL').checked };
   const r = await tfetch('api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   $('settingsMsg').textContent = r.ok ? '✓ Saved. Students get the new settings within 30 seconds.' : 'Could not save (teacher code?).';
   if (r.ok) showServerInfo();
@@ -375,7 +386,7 @@ function renderManage() {
         <button class="mini mg-dl" title="Download this student's work">💾</button>
         <button class="mini danger mg-del" title="Delete this student">🗑</button>
       </td></tr>`;
-  })() })), 7) || `<tr><td colspan="7" class="muted">${T.live.length ? 'No student in this class.' : 'No students yet.'}</td></tr>`;
+  })() })), 7, { selectable: true }) || `<tr><td colspan="7" class="muted">${T.live.length ? 'No student in this class.' : 'No students yet.'}</td></tr>`;
   $('mgUnlockTo').innerHTML = unlockOpts;
   updateSelCount();
 }
@@ -427,7 +438,17 @@ function setupManage() {
     bulk(selectedIds(), `Put in ${cls || 'no class'}`, (sid) => changeWork(sid, (w) => { w.className = cls; }));
   };
   $('mgAll').onchange = (e) => { document.querySelectorAll('.mg-sel').forEach((c) => { c.checked = e.target.checked; }); updateSelCount(); };
+  // select all the students shown, none, or a whole class (checkbox in its header)
+  $('mgSelAll').onclick = () => { document.querySelectorAll('.mg-sel, .mg-grp, #mgAll').forEach((c) => { c.checked = true; }); updateSelCount(); };
+  $('mgSelNone').onclick = () => { document.querySelectorAll('.mg-sel, .mg-grp, #mgAll').forEach((c) => { c.checked = false; }); updateSelCount(); };
   $('mgRows').addEventListener('change', async (e) => {
+    if (e.target.classList.contains('mg-grp')) {
+      document.querySelectorAll('#mgRows tr[data-id]').forEach((tr) => {
+        const st = byId(tr.dataset.id);
+        if (st && (st.className || '') === e.target.dataset.cls) tr.querySelector('.mg-sel').checked = e.target.checked;
+      });
+      updateSelCount();
+    }
     if (e.target.classList.contains('mg-sel')) updateSelCount();
     if (e.target.classList.contains('mg-class')) {
       const id = e.target.closest('tr').dataset.id;
@@ -747,6 +768,7 @@ function init() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
   renderFiles();
   showServerInfo();
+  $('shareClass').onchange = () => showShare(T.publicBase);
   $('btnLogout').onclick = () => { localStorage.removeItem('ev3sim.teacherCode'); location.href = 'index.html'; };
   $('btnCode').onclick = () => { T.code = $('tcode').value.trim(); localStorage.setItem('ev3sim.teacherCode', T.code); startLive(); };
   $('tcode').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnCode').click(); });

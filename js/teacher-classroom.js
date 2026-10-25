@@ -65,7 +65,8 @@ function classCtlHtml(c) {
   } else {
     exam = `<button class="mini" data-ctl="exam" data-class="${esc(c)}">📝 Start an exam</button>`;
   }
-  return `<span class="grp-ctl">
+  const code = (T.classCodes || {})[c];
+  return `<span class="grp-ctl">${code ? `<span class="ctl-badge code" title="Code of this class (in its link and QR code)">🔑 ${esc(code)}</span>` : ''}
     ${ctl.paused ? '<span class="ctl-badge warn">⏸ paused</span>' : ''}${ctl.closed ? '<span class="ctl-badge warn">🔒 closed</span>' : ''}
     <button class="mini" data-ctl="msg" data-class="${esc(c)}" title="Show a message on every screen of this class">📢 Message</button>
     <button class="mini${ctl.paused ? ' on' : ''}" data-ctl="pause" data-class="${esc(c)}" title="Freeze the screens to get attention">${ctl.paused ? '▶ Resume' : '⏸ Pause screens'}</button>
@@ -369,17 +370,26 @@ function resetParts(work, parts) {
 }
 
 // ---------- Manage: class lists ----------
-let rosterDraft = null;
+let rosterDraft = null, codesDraft = null;
+const newCode = (used) => { let c; do { c = String(Math.floor(200000 + Math.random() * 799999)); } while (used.includes(c)); return c; };
 function renderRosterEditor() {
   if (!rosterDraft) rosterDraft = JSON.parse(JSON.stringify(teacherRoster()));
+  if (!codesDraft) codesDraft = { ...(T.classCodes || {}) };
   $('rosterSource').textContent = T.roster ? '' : '(default lists from js/roster.js: saving stores them online)';
   const classes = Object.keys(rosterDraft).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   $('rosterEditor').innerHTML = classes.map((c) => `<div class="roster-class"><div class="actions"><b>🏫 ${esc(c)}</b><span class="muted">${rosterDraft[c].length} students</span><span class="spacer" style="flex:1"></span>
       <button class="mini danger" data-roster-del="${esc(c)}" title="Remove this class from the lists">✕</button></div>
+      <div class="actions code-row">🔑 <input data-code="${esc(c)}" value="${esc(codesDraft[c] || '')}" placeholder="new" size="8" title="Code of this class: it only opens this class"><button class="mini" data-newcode="${esc(c)}" title="New random code (the old one stops working)">↻</button></div>
       <textarea data-roster="${esc(c)}" rows="${Math.min(16, Math.max(4, rosterDraft[c].length + 1))}">${esc(rosterDraft[c].join('\n'))}</textarea></div>`).join('')
     || '<p class="muted">No class yet: add one or paste your lists from Excel.</p>';
   $('rosterEditor').querySelectorAll('[data-roster]').forEach((t) => {
     t.oninput = () => { rosterDraft[t.dataset.roster] = t.value.split('\n').map((x) => x.trim()).filter(Boolean); $('rosterMsg').textContent = 'Not saved yet.'; };
+  });
+  $('rosterEditor').querySelectorAll('[data-code]').forEach((t) => {
+    t.oninput = () => { codesDraft[t.dataset.code] = t.value.trim(); $('rosterMsg').textContent = 'Not saved yet.'; };
+  });
+  $('rosterEditor').querySelectorAll('[data-newcode]').forEach((b) => {
+    b.onclick = () => { codesDraft[b.dataset.newcode] = newCode(Object.values(codesDraft)); renderRosterEditor(); $('rosterMsg').textContent = 'New code: not saved yet.'; };
   });
   $('rosterEditor').querySelectorAll('[data-roster-del]').forEach((b) => {
     b.onclick = () => { if (confirm(`Remove ${b.dataset.rosterDel} from the class lists? (The students' work is kept.)`)) { delete rosterDraft[b.dataset.rosterDel]; renderRosterEditor(); $('rosterMsg').textContent = 'Not saved yet.'; } };
@@ -416,13 +426,40 @@ function setupRosterEditor() {
     try {
       const d = await tpost('api/roster', { roster: rosterDraft });
       T.roster = d.roster;
+      const codes = Object.fromEntries(Object.keys(d.roster).map((c) => [c, codesDraft[c] || d.classCodes[c]]));
+      const st = await tpost('api/settings', { classCodes: codes });
+      T.classCodes = st.classCodes || d.classCodes;
+      if (T.publicBase) showShare(T.publicBase);
       rosterDraft = null;
+      codesDraft = null;
       refreshClasses();
       renderRosterEditor();
       renderManage();
       renderLive();
       $('rosterMsg').textContent = '✓ Saved. The welcome page shows the new lists at once.';
     } catch (e) { $('rosterMsg').textContent = 'Could not save: ' + e.message; }
+  };
+}
+
+// ---------- Empty the database (keeps the class lists, the names and the settings) ----------
+function wipeDialog() {
+  openModal(`<h2>🧹 Empty the database</h2>
+    <p>Everything is deleted: students' work and progress, history, comments, exams and results, help requests, daily backups and archives.</p>
+    <p><b>Kept:</b> the class lists (classes and names), the class codes and the settings. Connected students are sent back to the welcome page.</p>
+    <p><button id="wipeDl">💾 First download a backup of everything</button></p>
+    <p>Type <b>EMPTY</b> to confirm: <input id="wipeTxt" autocomplete="off" style="width:110px"></p>
+    <div class="actions" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button><button class="danger" id="wipeGo">🧹 Empty the database</button></div>`);
+  $('wipeDl').onclick = async () => downloadJson(`EV3-class-backup_${new Date().toISOString().slice(0, 10)}.json`, await (await tfetch('api/admin/backup')).json());
+  $('wipeGo').onclick = async () => {
+    if ($('wipeTxt').value.trim().toUpperCase() !== 'EMPTY') { alert('Type EMPTY to confirm.'); return; }
+    $('wipeGo').disabled = true;
+    const res = await adminPost({ action: 'wipe' });
+    closeModal();
+    $('mgMsg').textContent = res.ok ? `✓ Database emptied (${res.deleted} entries deleted). Class lists, codes and settings kept.` : 'Could not empty the database: ' + (res.error || '');
+    T.help = [];
+    await refreshLive();
+    renderManage();
+    renderManageExtras();
   };
 }
 
@@ -486,6 +523,7 @@ function setupClassroomTeacher() {
   });
   $('btnExams').onclick = () => examsList().catch((e) => alert(e.message));
   document.querySelector('[data-tab="manageTab"]').addEventListener('click', () => { if (!$('liveArea').hidden) renderManageExtras(); });
+  $('btnWipe').onclick = wipeDialog;
   $('btnBackupNow').onclick = async () => { try { await tpost('api/backup/now', {}); renderBackups(); renderDbStats(); } catch (e) { alert(e.message); } };
   setupRosterEditor();
   loadTeacherRoster().then(() => { if (!$('liveArea').hidden) renderLive(); });
