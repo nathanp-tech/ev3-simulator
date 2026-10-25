@@ -817,10 +817,25 @@ async function startPreview() {
   const code = localStorage.getItem('ev3sim.teacherCode') || '';
   const info = await Sync.getJson('api/info?code=' + encodeURIComponent(code));
   if (info && !info.passwordOk && !(info.teacher && !info.needsCode)) {
-    showWelcome();
-    $('wError').textContent = 'The student view is for teachers: log in with the 👩‍🏫 Teacher button first.';
+    // the teacher password is not known on this computer (log out, other browser…): ask it, then open the preview
+    $('welcome').hidden = false;
+    $('wPick').hidden = true; $('wCodeStep').hidden = true; $('wChoices').hidden = true; $('wModeTitle').hidden = true;
+    openModal(`<h2>🎓 Student view (teacher preview)</h2><p>Type the teacher password to open the student app with every challenge open.</p>
+      <p><input id="pvPass" type="password" autocomplete="current-password" style="font-size:16px;padding:8px 10px"> <button class="primary" id="pvGo">Open</button></p><p id="pvErr" class="werr"></p>`);
+    const go = async () => {
+      const pw = $('pvPass').value.trim();
+      const r = await Sync.getJson('api/info?code=' + encodeURIComponent(pw));
+      if (!r || !r.passwordOk) { $('pvErr').textContent = 'Wrong password.'; return; }
+      localStorage.setItem('ev3sim.teacherCode', pw);
+      closeModal();
+      startPreview();
+    };
+    $('pvGo').onclick = go;
+    $('pvPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    setTimeout(() => $('pvPass').focus(), 50);
     return;
   }
+  $('welcome').hidden = true;
   App.preview = true;
   Sync.disabled = true;
   Progress.key = 'ev3sim.v2.preview';
