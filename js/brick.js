@@ -120,7 +120,7 @@ class Sound {
   }
   _tone(freq, start, dur, type = 'square', freqEnd = null) {
     const ac = this._ac();
-    if (!ac) return;
+    if (!ac || !isFinite(freq) || !isFinite(dur)) return;
     const o = ac.createOscillator(), g = ac.createGain();
     o.type = type;
     const t0 = ac.currentTime + start;
@@ -149,7 +149,7 @@ class Sound {
   }
   beep(note, secs) {
     if (this.muted || this.volume <= 0) return;
-    this._tone(440 * Math.pow(2, (note - 69) / 12), 0, Math.max(0.02, secs));
+    this._tone(clamp(440 * Math.pow(2, (note - 69) / 12), 20, 20000), 0, clamp(secs, 0.02, 30));
   }
   play(name) {
     if (this.muted || this.volume <= 0) return;

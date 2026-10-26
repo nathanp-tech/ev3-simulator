@@ -30,8 +30,8 @@ class Runtime {
     this.hooks = hooks; // onLog(msg, kind), onEnd(reason)
     this.running = false;
     this.threads = new Set();
-    this.V = {};
-    this.L = {};
+    this.V = Object.create(null);
+    this.L = Object.create(null);
   }
 
   // ---------- Lifecycle ----------
@@ -40,8 +40,8 @@ class Runtime {
     this.threads = new Set();
     this.waiting = new Set();
     this.startHats = []; this.condHats = []; this.msgHats = [];
-    this.V = {};
-    this.L = {};
+    this.V = Object.create(null);
+    this.L = Object.create(null);
     for (const v of variables) this.V[v] = 0;
     for (const l of lists) this.L[l] = [];
     this.tid = 0;
@@ -100,8 +100,11 @@ class Runtime {
     const T = { id: ++this.tid, hat, cancelled: false, iter: 0, block: null, waiter: null, done: false };
     hat.thread = T;
     this.threads.add(T);
+    // A stack restarted in the same step (e.g. "when I receive go … broadcast go") waits for the next step: no endless loop.
+    const again = hat.spawnStep === this.sim.stepIndex;
     Promise.resolve()
-      .then(() => hat.fn(T))
+      .then(() => (again ? this.waitFor(T, null) : null))
+      .then(() => { hat.spawnStep = this.sim.stepIndex; return hat.fn(T); })
       .catch((e) => { if (!(e instanceof StopSignal)) this._error(e, T); })
       .finally(() => {
         T.done = true;
@@ -121,7 +124,8 @@ class Runtime {
     }
   }
   _error(e, T) {
-    const msg = e && e.message ? e.message : String(e);
+    let msg = e && e.message ? e.message : String(e);
+    if (e instanceof RangeError && /call stack/i.test(msg)) msg = 'Too many My Blocks calling each other (a My Block that calls itself without end?)';
     this.errorBlock = T ? T.block : null;
     this.lastError = msg;
     if (this.hooks.onLog) this.hooks.onLog('Error: ' + msg, 'error');
@@ -172,8 +176,9 @@ class Runtime {
   num(v) {
     if (typeof v === 'number') return isFinite(v) ? v : 0;
     if (typeof v === 'boolean') return v ? 1 : 0;
-    const n = Number(String(v).trim());
-    return String(v).trim() !== '' && isFinite(n) ? n : 0;
+    const t = String(v).trim().replace(/^(-?\d*),(\d+)$/, '$1.$2');
+    const n = Number(t);
+    return t !== '' && isFinite(n) ? n : 0;
   }
   str(v) {
     if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100);

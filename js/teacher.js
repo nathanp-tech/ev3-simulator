@@ -2,6 +2,9 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
+// Numbers and states written by a student's browser are forced to what they should be (never shown as HTML).
+const nb = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
+const okStatus = (st) => (['locked', 'open', 'passed', 'validated'].includes(st) ? st : 'locked');
 const esc = (s) => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const T = {
@@ -16,10 +19,10 @@ const STATUS_TEXT = { locked: 'locked', open: 'in progress', passed: 'passed', v
 function dotsHtml(s, ref) {
   return '<span class="dots">' + CHALLENGES.map((c, i) => {
     const e = s.challenges && s.challenges[c.id];
-    const st = e ? e.status : 'locked';
+    const st = okStatus(e && e.status);
     const gap = i && CHALLENGES[i - 1].cat !== c.cat ? '<span class="dot-gap"></span>' : '';
-    const tip = `${categoryOf(c).icon} ${c.title}: ${STATUS_TEXT[st]}${e && e.bestScore !== null && e.bestScore !== undefined ? ' · best ' + e.bestScore + ' %' : ''} · click to see the code`;
-    return `${gap}<button class="dot ${st}${s.mode !== 'free' && s.current === c.id ? ' cur' : ''}" data-dot="${ref}" data-ch="${c.id}" title="${esc(tip)}"></button>`;
+    const tip = `${categoryOf(c).icon} ${c.title}: ${STATUS_TEXT[st]}${e && nb(e.bestScore) !== null ? ' · best ' + nb(e.bestScore) + ' %' : ''} · click to see the code`;
+    return `${gap}<button class="dot ${st}${s.mode !== 'free' && s.current === c.id ? ' cur' : ''}" data-dot="${esc(ref)}" data-ch="${c.id}" title="${esc(tip)}"></button>`;
   }).join('') + '</span>';
 }
 
@@ -43,17 +46,17 @@ function rowHtml(s, i, stats, source) {
   const cur = s.challenges && s.challenges[s.current];
   const free = s.mode === 'free', fll = s.mode === 'fll';
   const modeCell = fll ? '🏆 FLL' : free ? '🛠️ Free' : '🧭 Guided';
-  const fllBest = s.fll && s.fll.bestScore !== null && s.fll.bestScore !== undefined ? s.fll.bestScore : null;
+  const fllBest = s.fll ? nb(s.fll.bestScore) : null;
   const status = source === 'live' ? liveStatus(s) : { cls: '', text: s.lastSavedAt ? new Date(s.lastSavedAt).toLocaleString() : '—' };
   const canValidate = source === 'live' && s.mode === 'guided' && cur && cur.status !== 'validated';
   return `<tr class="${status.cls === 'wait' ? 'waiting' : ''}">
     <td>${source === 'live' && T.help.some((h) => h.studentId === s.studentId) ? '<span class="help-badge" title="Asked for help">🙋</span>' : ''}${source === 'live' ? `<span class="pres ${isOnline(s) ? 'on' : 'off'}" title="${isOnline(s) ? 'Connected now' : 'Not connected now'}"></span>` : ''}<b>${esc(s.name)}</b>${s.className && source !== 'live' ? ` <span class="muted">${esc(s.className)}</span>` : ''}</td>
     <td>${modeCell}</td>
     <td>${dotsHtml(s, source + ':' + i)}<span class="muted">${a.validated} / ${CHALLENGES.length}</span></td>
-    <td>${fll ? `<button class="linklike" data-dot="${source}:${i}" data-ch="fll">FLL BIOGLOW</button>${fllBest !== null ? ` <span class="muted">best ${fllBest} pts · ${s.fll.matches.length} match${s.fll.matches.length > 1 ? 'es' : ''}</span>` : ''}` : free ? '<span class="muted">free programming</span>' : esc(chShort(s.current))}</td>
+    <td>${fll ? `<button class="linklike" data-dot="${source}:${i}" data-ch="fll">FLL BIOGLOW</button>${fllBest !== null ? ` <span class="muted">best ${fllBest} pts · ${nb((s.fll.matches || []).length)} match${(s.fll.matches || []).length > 1 ? 'es' : ''}</span>` : ''}` : free ? '<span class="muted">free programming</span>' : esc(chShort(s.current))}</td>
     <td>${fll ? fmtTime(s.fll && s.fll.timeSpent) : free ? fmtTime(s.freeTime) : fmtTime(cur && cur.timeSpent)}</td>
-    <td>${fll ? (s.fll && s.fll.runs) || 0 : free ? (s.free && s.free.runs) || 0 : (cur && cur.runs) || 0}</td>
-    <td>${fll ? (fllBest !== null ? fllBest + ' pts' : '—') : !free && cur && cur.bestScore !== null ? cur.bestScore + ' %' : '—'}</td>
+    <td>${nb(fll ? s.fll && s.fll.runs : free ? s.free && s.free.runs : cur && cur.runs) || 0}</td>
+    <td>${fll ? (fllBest !== null ? fllBest + ' pts' : '—') : !free && cur && nb(cur.bestScore) !== null ? nb(cur.bestScore) + ' %' : '—'}</td>
     <td class="st ${status.cls}">${status.text}</td>
     <td class="lvl ${a.level}" title="${esc(a.summary.join(' '))}">${LEVEL_LABEL[a.level]}</td>
     <td style="white-space:nowrap">${canValidate ? `<button class="mini" data-validate="${i}" title="Mark this challenge as passed and unlock the next one">Unlock next</button> ` : ''}${source === 'live' ? `<button class="mini primary" data-watch="${i}" title="See their blocks live and run their program">👁 View</button> <button class="mini" data-reset="${i}" title="Clear this student: everything is deleted, they are logged out and start again">↺</button> ` : ''}<button class="mini" data-details="${i}" data-src="${source}">Details</button></td>
@@ -67,7 +70,7 @@ const tfetch = (url, opts = {}) => fetch(url, { cache: 'no-store', ...opts, head
 async function startLive() {
   try {
     const r = await tfetch('api/progress');
-    if (r.status === 403) {
+    if (r.status === 403 || r.status === 401) {
       $('codeRow').hidden = false;
       if (T.code) $('codeMsg').textContent = T.hosted ? 'Wrong code. It is the TEACHER_CODE you set in Vercel.' : 'Wrong code. The code is shown in the server window on the teacher\'s computer.';
       setTimeout(() => $('tcode').focus(), 50);
@@ -249,7 +252,7 @@ function showDetails(s, all, isLive) {
     const errs = Object.entries(e.errors || {}).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([k, n]) => `${esc(k)} ×${n}`).join('<br>');
     const crit = Object.entries(e.failedCriteria || {}).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([k, n]) => `${esc(k)} ×${n}`).join('<br>');
     const prog = e.program ? `<button class="mini" data-prog="${c.id}">Program</button>` : '';
-    return `<tr><td>${esc(c.title)}</td><td>${{ locked: '🔒', open: '✏️ open', passed: '✅ passed', validated: '✅ passed' }[e.status]}</td><td>${fmtTime(e.timeSpent)}</td><td>${e.runs}</td><td>${(e.gradings || []).length}${e.bestScore !== null ? ` (best ${e.bestScore} %)` : ''}</td><td>${e.hints}</td><td class="muted">${errs}</td><td class="muted">${crit}</td><td>${prog}</td></tr>`;
+    return `<tr><td>${esc(c.title)}</td><td>${{ locked: '🔒', open: '✏️ open', passed: '✅ passed', validated: '✅ passed' }[e.status]}</td><td>${fmtTime(e.timeSpent)}</td><td>${nb(e.runs) || 0}</td><td>${(Array.isArray(e.gradings) ? e.gradings : []).length}${nb(e.bestScore) !== null ? ` (best ${nb(e.bestScore)} %)` : ''}</td><td>${nb(e.hints) || 0}</td><td class="muted">${errs}</td><td class="muted">${crit}</td><td>${prog}</td></tr>`;
   }).join('');
   const events = (s.events || []).slice(-25).reverse().map((ev) => `<div><span class="muted">${new Date(ev.t).toLocaleTimeString()}</span> ${esc(ev.type)}${ev.ch ? ' · ' + esc(chShort(ev.ch)) : ''}${ev.d !== undefined ? ' · ' + esc(ev.d) : ''}</div>`).join('');
   openModal(`<h2>${esc(s.name)} ${s.className ? `<span class="muted">${esc(s.className)}</span>` : ''}</h2>
@@ -468,7 +471,7 @@ function setupManage() {
       const name = tr.querySelector('.mg-name').value.trim();
       if (!name) return;
       const key = (n) => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLowerCase();
-      const clash = T.live.find((o) => o.studentId !== id && key(o.name) === key(name));
+      const clash = T.live.find((o) => o.studentId !== id && key(o.name) === key(name) && key(o.className) === key(s && s.className));
       if (clash) { alert(`"${name}" is already used by another student${clash.className ? ' (' + clash.className + ')' : ''}. The first name identifies each student: add an initial, e.g. "${name} M.".`); return; }
       await changeWork(id, (w) => { w.name = name; });
       await refreshLive(); renderManage();
@@ -478,7 +481,7 @@ function setupManage() {
       await bulk([id], `Unlock up to "${CHALLENGES[idx].title}" for`, (sid) => changeWork(sid, (w) => unlockUpTo(w, idx)));
     }
     if (e.target.classList.contains('mg-reset')) resetStudentsDialog([id]);
-    if (e.target.classList.contains('mg-del')) await bulk([id], 'Delete (a copy is kept in data/archive/)', (sid) => adminPost({ action: 'delete', studentIds: [sid] }));
+    if (e.target.classList.contains('mg-del')) await bulk([id], 'Delete (a copy of their work is kept for 180 days)', (sid) => adminPost({ action: 'delete', studentIds: [sid] }));
     if (e.target.classList.contains('mg-dl')) {
       const work = await (await tfetch('api/work/' + id)).json();
       downloadJson(`${slugName(s.name)}${s.className ? '_' + slugName(s.className) : ''}_EV3-work.json`, work);
@@ -486,7 +489,7 @@ function setupManage() {
   });
   $('mgUnlockSel').onclick = () => { const idx = Number($('mgUnlockTo').value); bulk(selectedIds(), `Unlock up to "${CHALLENGES[idx].title}" for`, (sid) => changeWork(sid, (w) => unlockUpTo(w, idx))); };
   $('mgResetSel').onclick = () => { const ids = selectedIds(); if (!ids.length) alert('Select students first.'); else resetStudentsDialog(ids); };
-  $('mgDeleteSel').onclick = () => bulk(selectedIds(), 'Delete (a copy is kept in data/archive/)', async (sid) => adminPost({ action: 'delete', studentIds: [sid] }));
+  $('mgDeleteSel').onclick = () => bulk(selectedIds(), 'Delete (a copy of their work is kept for 180 days)', async (sid) => adminPost({ action: 'delete', studentIds: [sid] }));
   $('btnBackup').onclick = async () => {
     const r = await tfetch('api/admin/backup');
     if (!r.ok) { alert('Backup needs the class server and the teacher code.'); return; }

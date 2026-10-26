@@ -170,6 +170,13 @@ Open `tests/selftest.html` through the server (for tests, run it with `EV3_DATA_
 - an empty program must score 0 %;
 - language, wrong-port error, 2-sensor line follower and beacon follower tests.
 
+Two more pages, same way:
+
+- `tests/variants.html`: about 130 student-style solutions (different blocks, speeds, sensors, robot setups). Correct ones must pass the official check and stay robust on random practice layouts; the ones whose name starts with ✗ (hard-coded layouts, skipped tasks, ramming…) must fail. `?ch=<id>` tests one challenge.
+- `tests/engine.html`: the block engine (broadcast loops, disabled blocks, My Blocks inputs and names, commas in numbers, sound, special variable names).
+
+The official trials of a challenge use its `checkSeeds` (chosen so that the layouts really differ). A challenge with one fixed layout is practised with the same seed as its check, so Run and Check give the same score.
+
 ## Structure
 
 ```

@@ -5,7 +5,7 @@ const G = javascript.javascriptGenerator;
 const O = javascript.Order;
 
 G.STATEMENT_PREFIX = 'R.step(T, %1);\n';
-G.addReservedWords('R,V,T');
+G.addReservedWords('R,V,T,F,a,k,i,_n');
 
 const q = JSON.stringify;
 const vcode = (b, n, def = '0') => G.valueToCode(b, n, O.NONE) || def;
@@ -124,7 +124,12 @@ F.ev3_repeat_until = (b) => `while (!(${cond(b, 'COND')})) {\n${loopBody(b)}}\n`
 F.ev3_if = (b) => `if (${cond(b, 'COND')}) {\n${G.statementToCode(b, 'DO')}}\n`;
 F.ev3_if_else = (b) => `if (${cond(b, 'COND')}) {\n${G.statementToCode(b, 'DO')}} else {\n${G.statementToCode(b, 'ELSE')}}\n`;
 F.ev3_stop_other = () => "R.stop(T, 'other');\n";
-F.ev3_stop = (b) => `R.stop(T, ${fld(b, 'WHAT')});\n`;
+F.ev3_stop = (b) => {
+  const root = b.getRootBlock();
+  // like Scratch: "stop this stack" inside a My Block only ends that block
+  if (b.getFieldValue('WHAT') === 'this' && root && root.type.startsWith('procedures_def')) return 'return;\n';
+  return `R.stop(T, ${fld(b, 'WHAT')});\n`;
+};
 
 // ---------- Sensors ----------
 const touchWait = (p, state) => {
@@ -193,9 +198,10 @@ F.ev3_op_math = (b) => [`R.math(${fld(b, 'OP')}, ${num(b, 'A')})`, O.FUNCTION_CA
 
 // ---------- Variables (stored in V for the live monitor) ----------
 const varName = (b, f = 'VAR') => q(b.getField(f).getText());
-F.variables_get = (b) => [`V[${varName(b)}]`, O.MEMBER];
-F.variables_set = (b) => `V[${varName(b)}] = ${vcode(b, 'VALUE')};\n`;
-F.math_change = (b) => `V[${varName(b)}] = R.num(V[${varName(b)}]) + ${num(b, 'DELTA')};\n`;
+const varRef = (b) => `${procParams(b).includes(b.getField('VAR').getText()) ? 'F' : 'V'}[${varName(b)}]`;
+F.variables_get = (b) => [varRef(b), O.MEMBER];
+F.variables_set = (b) => `${varRef(b)} = ${vcode(b, 'VALUE')};\n`;
+F.math_change = (b) => `${varRef(b)} = R.num(${varRef(b)}) + ${num(b, 'DELTA')};\n`;
 
 // ---------- Lists ----------
 const L = (b) => varName(b, 'LIST');
@@ -216,6 +222,11 @@ function procName(b) {
   const name = b.getFieldValue('NAME');
   return G.getProcedureName ? G.getProcedureName(name) : G.nameDB_.getName(name, Blockly.Names.NameType.PROCEDURE);
 }
+// Inside a My Block definition, its inputs are local to each call (F), so parallel stacks never mix them up.
+function procParams(b) {
+  const root = b.getRootBlock();
+  return root && root.type.startsWith('procedures_def') ? root.getVars() : [];
+}
 function procDef(b) {
   const fn = procName(b);
   const params = b.getVars();
@@ -223,10 +234,9 @@ function procDef(b) {
   const ret = b.getInput('RETURN') ? G.valueToCode(b, 'RETURN', O.NONE) : '';
   G.definitions_['%' + fn] =
     `async function ${fn}(T, ...a) {\n` +
-    `  const n = ${q(params)}, s = n.map((k) => V[k]);\n` +
-    `  n.forEach((k, i) => { V[k] = a[i]; });\n` +
-    `  try {\n${G.prefixLines(body, G.INDENT)}${ret ? `    return ${ret};\n` : ''}  } finally {\n` +
-    `    n.forEach((k, i) => { V[k] = s[i]; });\n  }\n}`;
+    `  const F = Object.create(null);\n` +
+    `  ${q(params)}.forEach((k, i) => { F[k] = a[i]; });\n` +
+    `${body}${ret ? `  return ${ret};\n` : ''}}`;
   return null;
 }
 F.procedures_defnoreturn = procDef;
@@ -244,6 +254,7 @@ function generateProgram(ws) {
   G.init(ws);
   let code = '';
   for (const b of ws.getTopBlocks(true)) {
+    if (!b.isEnabled()) continue;
     if (HAT_TYPES.has(b.type) || b.type.startsWith('procedures_def')) {
       const c = G.blockToCode(b);
       if (typeof c === 'string') code += c;

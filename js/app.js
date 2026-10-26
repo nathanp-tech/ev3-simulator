@@ -62,7 +62,10 @@ function workSlot() {
 function storeWorkspace() {
   const slot = workSlot();
   if (!slot || App.loading) return;
-  slot.program = Blockly.serialization.workspaces.save(ws);
+  const program = Blockly.serialization.workspaces.save(ws);
+  // when the program really changed (a merge with another copy keeps the newer one)
+  if (JSON.stringify(program) !== JSON.stringify(slot.program)) slot.programAt = new Date().toISOString();
+  slot.program = program;
   slot.robot = JSON.parse(JSON.stringify(sim.config));
   Progress.persist();
 }
@@ -142,7 +145,14 @@ function showWelcome() {
   updateExamBanner();
   renderHelpButton();
   pickClass('');
-  checkClassCode().then((ok) => { if (ok) loadRoster().then(() => { if (!$('welcome').hidden && !$('wName').value) pickClass($('wClass').value); }); });
+  const load = () => checkClassCode().then((ok) => { if (ok) return loadRoster().then(() => { if (!$('welcome').hidden && !$('wName').value) pickClass($('wClass').value); }); });
+  load();
+  // no class lists yet (server unreachable): try again while the welcome screen is open
+  clearInterval(App.rosterRetry);
+  App.rosterRetry = setInterval(() => {
+    if ($('welcome').hidden) { clearInterval(App.rosterRetry); return; }
+    if (!Object.keys(currentRoster()).length || CR.rosterFailed) load();
+  }, 5000);
 }
 
 // The class code (in the link / QR code of the dashboard, or typed once) opens the class lists on this device.
@@ -197,7 +207,7 @@ function pickClass(cls) {
   if (!cls && Object.keys(roster).length === 1) cls = Object.keys(roster)[0]; // the class code opens one class
   if (cls && (!roster[cls] || classClosed(cls))) cls = '';
   $('wClass').value = cls;
-  $('wClasses').innerHTML = !Object.keys(roster).length ? '<span class="muted">Loading the classes…</span>' : Object.keys(roster).sort(byName).map((c) => classClosed(c)
+  $('wClasses').innerHTML = !Object.keys(roster).length ? `<span class="muted">${CR.rosterFailed ? 'The class server does not answer. Trying again…' : 'Loading the classes…'}</span>` : Object.keys(roster).sort(byName).map((c) => classClosed(c)
     ? `<button class="wclass closed" disabled title="Your teacher closed this class for now">🔒 ${esc(c)}</button>`
     : `<button class="wclass${c === cls ? ' on' : ''}" data-class="${esc(c)}">${esc(c)}</button>`).join('');
   $('wClasses').querySelectorAll('[data-class]').forEach((b) => { b.onclick = () => pickClass(b.dataset.class); });
@@ -219,20 +229,69 @@ function pickName(name) {
   $('wModeTitle').classList.remove('wait');
 }
 
-// The teacher changed this student's work in the dashboard: reload it from the server.
+// The teacher changed this student's work in the dashboard, or a newer copy was saved from another tab or computer:
+// reload it from the server.
 let remoteBusy = false;
-async function onRemoteChange() {
+async function onRemoteChange(stale = false) {
   if (remoteBusy || !Progress.data) return;
   remoteBusy = true;
   try {
     if (App.status === 'running') rt.stopAll('user');
+    if (stale) storeWorkspace();
+    const mine = stale ? JSON.parse(JSON.stringify(Progress.data)) : null;
     const work = await Sync.fetchWork(Progress.data.studentId);
-    Progress.load(work);
-    Progress.dirty = false;
+    Progress.load(stale ? mergeWork(work, mine) : work);
+    Progress.dirty = stale; // the merged work is saved again at once
     startSession(Progress.data, { quiet: true });
-    toast('🔄 Your teacher updated your work.');
+    if (stale) {
+      Sync.push(liveState(), true);
+      if (Date.now() - (App.mergeToastAt || 0) > 30000) toast('🔄 Your work was also saved from another tab or computer: both versions are combined.');
+      App.mergeToastAt = Date.now();
+    } else toast('🔄 Your teacher updated your work.');
   } catch (e) { console.error(e); } finally { remoteBusy = false; }
 }
+// Another tab or computer saved this work in the meantime: keep the best of both (nothing passed is lost) and the
+// program being written here.
+const STATUS_RANK = { locked: 0, open: 1, passed: 2, validated: 2 };
+// the program edited last wins (programAt: set when the program really changes)
+function newerProgram(into, from) {
+  if (from && from.program && String(from.programAt || '') > String(into.programAt || '')) {
+    into.program = from.program; into.robot = from.robot; into.programAt = from.programAt;
+  }
+}
+function mergeWork(server, mine) {
+  const out = server;
+  for (const [id, m] of Object.entries(mine.challenges || {})) {
+    const s = out.challenges[id];
+    if (!s) { out.challenges[id] = m; continue; }
+    const mr = STATUS_RANK[m.status] || 0, sr = STATUS_RANK[s.status] || 0;
+    const keep = mr > sr ? { ...m } : s;
+    const other = keep === s ? m : s;
+    if (typeof other.bestScore === 'number' && !(keep.bestScore >= other.bestScore)) keep.bestScore = other.bestScore;
+    if ((other.gradings || []).length > (keep.gradings || []).length) keep.gradings = other.gradings;
+    keep.hints = Math.max(keep.hints || 0, other.hints || 0);
+    newerProgram(keep, other);
+    out.challenges[id] = keep;
+  }
+  if (mine.free) newerProgram(out.free = out.free || {}, mine.free);
+  if (mine.fll) {
+    newerProgram(out.fll = out.fll || {}, mine.fll);
+    if (typeof mine.fll.bestScore === 'number' && !(out.fll.bestScore >= mine.fll.bestScore)) out.fll.bestScore = mine.fll.bestScore;
+  }
+  for (const [eid, ex] of Object.entries(mine.exams || {})) {
+    const se = (out.exams = out.exams || {})[eid];
+    if (!se) { out.exams[eid] = ex; continue; }
+    for (const [cid, sl] of Object.entries(ex.slots || {})) {
+      const ss = (se.slots = se.slots || {})[cid];
+      if (!ss || (sl.best !== null && !(ss.best >= sl.best))) se.slots[cid] = { ...(ss || {}), ...sl };
+    }
+  }
+  out.examQueue = [...(out.examQueue || []), ...(mine.examQueue || [])];
+  out.current = mine.current;
+  out.mode = mine.mode;
+  return out;
+}
+
 // The teacher deleted this student (or reset the class).
 function onDeleted() {
   if (!Progress.data) return;
@@ -262,14 +321,30 @@ function startSession(data, { quiet = false } = {}) {
 }
 
 // A student = class + name (from the class lists). Their saved work is found and reopened directly.
+let choosing = false;
 async function chooseMode(mode) {
+  if (choosing) return; // a double click must not create two students
+  choosing = true;
+  document.querySelectorAll('.choice').forEach((b) => { b.disabled = true; });
+  try { await chooseModeNow(mode); } finally {
+    choosing = false;
+    document.querySelectorAll('.choice').forEach((b) => { b.disabled = false; });
+  }
+}
+async function chooseModeNow(mode) {
   const name = $('wName').value.trim(), cls = $('wClass').value.trim();
   if (!name) { $('wError').textContent = 'Choose your class and your name first.'; return; }
   if (!Sync.online) await Sync.ping();
+  // the class lists came from the server, which does not answer now: wait rather than start a second, empty work
+  if (!Sync.online && CR.roster) { $('wError').textContent = 'The class server does not answer. Wait a few seconds and click again.'; return; }
   const matches = await Sync.find(name, cls);
+  // the server did not answer: never start an empty work that would hide the real one
+  if (matches === null) { $('wError').textContent = 'The class server does not answer. Wait a few seconds and click again.'; return; }
   if (!matches.length) { startSession(Progress.create(name, cls, mode)); return; }
+  // several works with this name (e.g. one created during a network problem): the one with the most progress
+  matches.sort((a, b) => (b.validated || 0) - (a.validated || 0) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   try {
-    const data = await Sync.fetchWork(matches[0].studentId); // the most recent one
+    const data = await Sync.fetchWork(matches[0].studentId);
     data.mode = mode;
     if (cls) data.className = cls;
     startSession(Progress.load(data));
@@ -353,6 +428,7 @@ function setMode(mode, { initial = false } = {}) {
   if (App.exam) { enterExamChallenge(App.examCh || App.exam.challenges[0], { skipStore: true }); return; } // the exam stays on screen
   if (App.status === 'running') { rt.stopAll('user'); App.status = 'idle'; updateButtons(); }
   if (!initial) storeWorkspace();
+  if (App.mode === 'fll' && mode !== 'fll') FLLUI.pose = { ...sim.robot };
   App.mode = mode;
   $('sandboxBar').hidden = mode !== 'sandbox';
   $('challengeBox').hidden = mode !== 'challenge';
@@ -364,7 +440,8 @@ function setMode(mode, { initial = false } = {}) {
     loadSandboxMat(App.matId);
   } else if (mode === 'fll') {
     loadSlot(Progress.data.fll);
-    newFllMatch();
+    const S = FLLUI.S;
+    if (S && S.started && !S.ended) resumeFllMatch(); else newFllMatch();
   } else {
     enterChallenge(Progress.data.current, { skipStore: true });
   }
@@ -401,7 +478,11 @@ function enterChallenge(id, { skipStore = false } = {}) {
 function selectChallenge(id, newSeed = true) {
   const ch = CHALLENGES.find((c) => c.id === id) || CHALLENGES[0];
   App.challenge = ch;
-  if (newSeed) App.practiceSeed = Math.floor(Math.random() * 1e9);
+  // A challenge with one fixed layout is practised with the seed of its official check: same noise, so Run and Check agree.
+  const fixed = (ch.trials || 1) === 1;
+  if (fixed) App.practiceSeed = checkSeeds(ch)[0];
+  else if (newSeed) App.practiceSeed = Math.floor(Math.random() * 1e9);
+  $('btnVariant').hidden = fixed;
   App.ctx = prepareChallenge(sim, brick, ch, App.practiceSeed, sim.config);
   $('practiceResult').innerHTML = '';
 }
@@ -420,7 +501,7 @@ function renderGuided() {
     return steps ? `<div class="step-group${cat.id === ch.cat ? ' on' : ''}"><div class="step-cat">${cat.icon} ${esc(cat.label)}</div><div class="steps">${steps}</div></div>` : '';
   }).join('');
   $('challengeTitle').textContent = `Challenge ${idx + 1} / ${CHALLENGES.length}: ${ch.title.replace(/^\d+\.\s*/, '')}`;
-  $('challengeMeta').textContent = `${categoryOf(ch).icon} ${categoryOf(ch).label} · Level ${ch.level}`;
+  $('challengeMeta').textContent = `${categoryOf(ch).icon} ${categoryOf(ch).label} · Level ${ch.level} · ⏱ ${ch.timeLimit} s per trial`;
   $('btnSolution').hidden = !App.preview;
   $('challengeDesc').innerHTML = `${ch.description}<span class="skills">Skills: ${esc(ch.skills)}</span>`;
   const hints = ch.hints || [];
@@ -428,6 +509,7 @@ function renderGuided() {
   $('btnHint').hidden = entry.hints >= hints.length;
   $('btnHint').textContent = `💡 Hint (${entry.hints + 1}/${hints.length})`;
   renderValidation();
+  if (portView) updateButtons(); // the stepper was rebuilt: keep it disabled during a run
 }
 
 function renderValidation() {
@@ -438,7 +520,7 @@ function renderValidation() {
     const next = CHALLENGES[CHALLENGES.indexOf(ch) + 1];
     box.innerHTML = `<div class="banner done"><div class="big">🎉 Challenge passed${entry.bestScore !== null ? ' with ' + entry.bestScore + ' %' : ''}!</div>
       ${next ? `<div class="row"><button class="primary" id="btnNext">Next challenge → ${esc(next.title.replace(/^\d+\.\s*/, ''))}</button></div>` : '<div><b>🏆 You finished all the challenges. Congratulations!</b> Don\'t forget to save your work.</div>'}</div>`;
-    if (next) $('btnNext').onclick = () => enterChallenge(next.id);
+    if (next) { $('btnNext').onclick = () => enterChallenge(next.id); $('btnNext').disabled = App.status !== 'idle'; }
   } else {
     box.innerHTML = entry.gradings.length ? `<div class="muted">Best check so far: ${entry.bestScore} % · you need ${CLASSROOM.passScore} % to pass.</div>` : '';
   }
@@ -699,6 +781,19 @@ function newFllMatch() {
   FLLUI.sheetKey = '';
   renderFllSetup();
   $('fllInfo').innerHTML = `New match. The robot starts in the <b>${FLLUI.side === 'left' ? 'left (red)' : 'right (blue)'}</b> launch area. You have 2:30. Between runs, drag the robot inside home and launch again. Click a mission below to see what to do. Tip: press <b>🧊 3D</b> to watch the missions in 3D.`;
+}
+
+// Back to the FLL table during a match: the field, the score and the robot are kept.
+function resumeFllMatch() {
+  const S = FLLUI.S;
+  sim.loadMat(FLL.mat);
+  sim.obstacles = S.obstacles;
+  sim._rebuildSegments();
+  sim.hook = (sm, dt) => FLL.step(S, sm, dt);
+  sim.resetRobot(FLLUI.pose || FLL.HOMES[FLLUI.side].start);
+  App.ctx = null;
+  brick.reset();
+  renderFllSetup();
 }
 
 function renderFllSetup() {
@@ -1206,7 +1301,7 @@ function setupWorkspaceChrome() {
   const place = () => {
     const tb = ws.getToolbox();
     const editorW = $('editor').clientWidth;
-    const left = Math.max(0, Math.min((tb ? tb.getWidth() : 0) + (tb && tb.getFlyout() ? tb.getFlyout().getWidth() : 0) + 16, editorW - 290));
+    const left = Math.max(0, Math.min((tb ? tb.getWidth() : 0) + (tb && tb.getFlyout() ? tb.getFlyout().getWidth() : 0) + 16, editorW - $('zoomBar').offsetWidth - 8));
     $('zoomBar').style.left = left + 'px';
     $('btnPortView').style.left = left + 'px';
   };
@@ -1231,7 +1326,7 @@ function setupWorkspaceChrome() {
 // ---------- Init ----------
 // The block palette has its own, smaller scale (less wide, more room for the program); blocks dragged
 // into the program take the editor's size.
-const PALETTE_SCALE = 0.75;
+const PALETTE_SCALE = window.innerWidth < 1150 ? 0.55 : window.innerWidth < 1450 ? 0.64 : 0.75; // school laptops: more room
 class PaletteFlyout extends ContinuousFlyout {
   getFlyoutScale() { return PALETTE_SCALE; }
 }
@@ -1329,7 +1424,10 @@ function init() {
   window.addEventListener('beforeunload', (e) => {
     if (!Progress.data) return;
     storeWorkspace();
-    if (Sync.online) {
+    if (Sync.online && !Sync.disabled) {
+      // this last save moves the server's counter: the copy kept here must know it, or the next start looks stale
+      Progress.data.saveRev = (Progress.data.saveRev || 0) + 1;
+      try { localStorage.setItem(Progress.key, JSON.stringify(Progress.data)); } catch (err) { /* storage blocked */ }
       try { fetch('api/work', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', 'X-Class-Code': ClassCode.get() }, body: JSON.stringify({ ...Progress.data, live: liveState('left') }) }); } catch (err) { /* ignore */ }
       if (Sync.savedRecently(20)) return;
     }

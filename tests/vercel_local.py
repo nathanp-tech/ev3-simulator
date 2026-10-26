@@ -8,6 +8,7 @@
 - an in-memory stand-in for the Upstash Redis REST API (nothing is written to disk)
 Teacher code: 123456.
 """
+import urllib.parse
 import http.server, importlib.util, json, os, socketserver, sys, threading, time
 from fnmatch import fnmatch
 
@@ -62,7 +63,10 @@ class Site(api.handler, http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if self._rewrite():
             return api.handler.do_GET(self)
-        rel = self.path.split('?')[0].lstrip('/')
+        rel = urllib.parse.unquote(self.path.split('?')[0]).lstrip('/').lower()
+        if any(x.startswith('.') for x in rel.split('/')):
+            self.send_error(404)
+            return
         if rel.startswith('api/') or any(fnmatch(rel, p.rstrip('/')) or rel.startswith(p.rstrip('/') + '/') for p in IGNORED):
             self.send_error(404)
             return

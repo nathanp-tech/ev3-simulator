@@ -252,11 +252,19 @@ const Sync = {
       if (sendWork) body.work = Progress.data;
       const r = await sfetch('api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (r.status === 410) { if (this.onDeleted) this.onDeleted(); return false; }
-      if (r.status === 409) { if (this.onRemoteChange) this.onRemoteChange(); return false; }
+      if (r.status === 409) {
+        const d = await r.json().catch(() => ({}));
+        if (this.onRemoteChange) this.onRemoteChange(!!d.stale);
+        return false;
+      }
       if (r.status === 401 || r.status === 403) { Progress.dirty = Progress.dirty || wasDirty; return false; }
       if (!r.ok) throw new Error('sync failed');
       const d = await r.json();
       if (sendWork) { this.lastPush = now; this.savedAt = Date.now(); }
+      if (d.savedRev) {
+        Progress.data.saveRev = d.savedRev; // the version the next save starts from
+        try { localStorage.setItem(Progress.key, JSON.stringify(Progress.data)); } catch (e) { /* storage blocked */ }
+      }
       if (sendWork || presence) this.lastPresence = now;
       if (d.now) this.serverOffset = d.now * 1000 - Date.now();
       const first = this.ver === null;
@@ -281,9 +289,10 @@ const Sync = {
     if (!this.online) return [];
     try {
       const r = await sfetch(`api/work/find?name=${encodeURIComponent(name)}&className=${encodeURIComponent(className || '')}`, { cache: 'no-store' });
+      if (!r.ok) return null;
       const d = await r.json();
       return d.matches || [];
-    } catch (e) { return []; }
+    } catch (e) { return null; } // no answer: the caller must not think this is a new student
   },
   async fetchWork(id) {
     const r = await sfetch('api/work/' + encodeURIComponent(id));

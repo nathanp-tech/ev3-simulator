@@ -143,11 +143,12 @@ class Motor {
     }
     if (this.mode === 'to') {
       const rem = this.target - this.pos;
-      const vmax = Math.sqrt(2 * 9000 * Math.abs(rem));
+      // braking curve gentler than the motor's deceleration, so "move for" really slows down before its target
+      const vmax = Math.sqrt(2 * 6000 * Math.abs(rem));
       desired = Math.sign(this.cmd) * Math.min(Math.abs(this.cmd), Math.max(vmax, 30));
     }
     if (this.mode === 'stop') {
-      if (this.stopMode === 'coast') { desired = 0; acc = 1200; }
+      if (this.stopMode === 'coast') { desired = 0; acc = 2500; } // friction: about 3 cm of rolling at 50 %
       else if (this.stopMode === 'hold') { desired = clamp((this.holdPos - this.pos) * 20, -300, 300); acc = 20000; }
       else { desired = 0; acc = 20000; }
     }
@@ -332,11 +333,13 @@ class Sim {
   }
 
   step(dt = DT) {
-    for (const m of Object.values(this.motors)) m.step(dt, this.t);
-    const r = ROBOT.wheelD / 2;
     const lp = this.wheelPort('left'), rp = this.wheelPort('right');
-    const vL = lp ? this.motors[lp].speed * DEG * r : 0;
-    const vR = rp ? this.motors[rp].speed * DEG * r : 0;
+    const pL = lp ? this.motors[lp].pos : 0, pR = rp ? this.motors[rp].pos : 0;
+    for (const m of Object.values(this.motors)) m.step(dt, this.t);
+    // The wheels turn by what the encoders count (this includes the last partial step of "move for …").
+    const r = ROBOT.wheelD / 2;
+    const vL = lp ? (this.motors[lp].pos - pL) / dt * DEG * r : 0;
+    const vR = rp ? (this.motors[rp].pos - pR) / dt * DEG * r : 0;
     const v = (vL + vR) / 2 * this.noise.lin;
     const w = (vL - vR) / ROBOT.track * this.noise.turn; // rad/s, positive = clockwise
     const { x, y, th } = this.robot;

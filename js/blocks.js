@@ -237,9 +237,9 @@ const EV3_BLOCKS = [
   cmd('ev3_display_font', C.display, '%1 set font to %2', [I.brick, dd('FONT', DD.fonts)]),
   cmd('ev3_display_pen', C.display, '%1 set pen color to %2', [I.brick, dd('COLOR', DD.penColor)]),
   cmd('ev3_display_pixel', C.display, '%1 draw pixel at x: %2 y: %3', [I.brick, val('X'), val('Y')]),
-  cmd('ev3_display_line', C.display, '%1 draw line from x: %2 y: %3 to x: %4 y: %5', [I.brick, val('X1'), val('Y1'), val('X2'), val('Y2')]),
-  cmd('ev3_display_circle', C.display, '%1 draw %2 circle at x: %3 y: %4 radius: %5', [I.brick, dd('FILL', DD.fill), val('X'), val('Y'), val('R')]),
-  cmd('ev3_display_rect', C.display, '%1 draw %2 rectangle at x: %3 y: %4 width: %5 height: %6', [I.brick, dd('FILL', DD.fill), val('X'), val('Y'), val('W'), val('H')]),
+  cmd('ev3_display_line', C.display, '%1 draw line x1: %2 y1: %3 x2: %4 y2: %5', [I.brick, val('X1'), val('Y1'), val('X2'), val('Y2')]),
+  cmd('ev3_display_circle', C.display, '%1 draw %2 circle x: %3 y: %4 r: %5', [I.brick, dd('FILL', DD.fill), val('X'), val('Y'), val('R')]),
+  cmd('ev3_display_rect', C.display, '%1 draw %2 rectangle x: %3 y: %4 w: %5 h: %6', [I.brick, dd('FILL', DD.fill), val('X'), val('Y'), val('W'), val('H')]),
   cmd('ev3_light', C.display, '%1 set brick status light to %2 %3', [I.brick, dd('COLOR', DD.lightColor), dd('MODE', DD.lightMode)]),
   cmd('ev3_light_off', C.display, '%1 turn off brick status light', [I.brick]),
 
@@ -357,7 +357,10 @@ Blockly.Extensions.register('ev3_hat', function () {
   this.suppressPrefixSuffix = true;
 });
 Blockly.Extensions.register('ev3_numeric', function () {
-  this.getField('NUM').setValidator((v) => (/^-?\d*\.?\d*$/.test(v) ? v : null));
+  this.getField('NUM').setValidator((v) => {
+    const s = String(v).trim().replace(',', '.');
+    return /^[-+]?\d*\.?\d*(e[-+]?\d+)?$/i.test(s) ? s.replace(/^\+/, '') : null;
+  });
 });
 Blockly.common.defineBlocksWithJsonArray(EV3_BLOCKS);
 // Older projects may still use cm / in units: accept them silently (not offered in the menu, like EV3 Classroom).

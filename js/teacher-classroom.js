@@ -207,10 +207,16 @@ async function verifyExam() {
   for (const [r, cid] of todo) {
     $('exMsg').textContent = `Replaying ${++done} / ${todo.length}…`;
     const ch = CHALLENGES.find((c) => c.id === cid), c = r.challenges[cid];
-    try {
-      const res = await evaluateProgram(ch, programFromSerialized(c.program), { sim: new Sim(), brick: new Brick(), config: c.robot || DEFAULT_CONFIG });
-      X.verified[r.studentId + ':' + cid] = res ? res.score : 0;
-    } catch (err) { X.verified[r.studentId + ':' + cid] = 0; }
+    // the best program and the former bests: the replay keeps the highest score it can confirm
+    let best = 0;
+    for (const p of [c, ...(c.alts || [])].filter((x) => x && x.program)) {
+      try {
+        const res = await evaluateProgram(ch, programFromSerialized(p.program), { sim: new Sim(), brick: new Brick(), config: p.robot || DEFAULT_CONFIG });
+        best = Math.max(best, res ? res.score : 0);
+      } catch (err) { /* this program cannot run: 0 */ }
+      if (best >= c.score) break;
+    }
+    X.verified[r.studentId + ':' + cid] = best;
     await new Promise((res) => setTimeout(res, 0));
   }
   renderExamResults();
@@ -271,7 +277,7 @@ function renderWatchHistory() {
   const live = W.version === null || W.version === undefined;
   box.innerHTML = `<span class="muted">🕓 History:</span>
     <button class="hist-chip${live ? ' on' : ''}" data-ver="live">● Now</button>
-    ${W.hist.map((v, i) => `<button class="hist-chip${W.version === i ? ' on' : ''} ${v.kind}" data-ver="${i}" title="${v.kind === 'check' ? 'Check my solution' : 'Run'} · ${new Date(v.t).toLocaleString()}">${new Date(v.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ${v.kind === 'check' ? '✅ ' + (v.score !== null ? v.score + '%' : '') : '▶'}</button>`).reverse().join('')}
+    ${W.hist.map((v, i) => `<button class="hist-chip${W.version === i ? ' on' : ''} ${v.kind === 'check' ? 'check' : 'run'}" data-ver="${i}" title="${v.kind === 'check' ? 'Check my solution' : 'Run'} · ${new Date(v.t).toLocaleString()}">${new Date(v.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ${v.kind === 'check' ? '✅ ' + (typeof v.score === 'number' ? v.score + '%' : '') : '▶'}</button>`).reverse().join('')}
     ${W.hist.length ? '<button class="mini danger" id="wHistClear" title="Delete all the recorded versions of this student (every program)">🗑 Clear the history</button>' : '<span class="muted">no version recorded yet (a version is kept at each Run / Check)</span>'}`;
   const clr = $('wHistClear');
   if (clr) clr.onclick = async () => {

@@ -107,7 +107,7 @@ async function main() {
     check(CHALLENGES.every((c) => CATEGORIES.some((k) => k.id === c.cat)), `every challenge has a category: ${CHALLENGES.map((c) => c.cat).join(', ')}`);
     check(CHALLENGES.every((c) => !/gyro/i.test(c.description + c.hints.join(' ') + c.skills)), 'no challenge needs the gyro sensor');
     const ch = CHALLENGES.find((c) => c.id === 'color-route');
-    const colors = EVAL_SEEDS.slice(0, ch.trials).map((sd) => ch.setup(mulberry32(sd)).data.color);
+    const colors = checkSeeds(ch).map((sd) => ch.setup(mulberry32(sd)).data.color);
     check(new Set(colors).size === 2, `color code: both colors appear in the trials (${colors.join(', ')})`);
   }
   // The answer key published for the teacher (api/_solutions.json) is the same as these solutions

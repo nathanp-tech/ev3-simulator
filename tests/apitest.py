@@ -68,7 +68,7 @@ if CLASS and not TRUSTED:
     s, r = call('GET', '/api/settings', klass=''); check('studentCode' not in r, 'public settings do not show the code')
 
 
-s, r = call('POST', '/api/work', work(A, 'Adriana', '4E')); check(s == 200 and r.get('rev') == 0, 'student saves')
+s, r = call('POST', '/api/work', work(A, 'Adriana', '4E')); check(s == 200 and r.get('rev') == 0 and r.get('savedRev') == 1, 'student saves', r)
 s, r = call('POST', '/api/work', work(B, 'Adriana', '4D'), cls='4D'); check(s == 200, 'second student with the same name, other class')
 s, r = call('GET', '/api/work/find?name=adriana&className=4E'); check([m['studentId'] for m in r['matches']] == [A], 'find by class + name', r)
 s, r = call('GET', '/api/progress'); denied(s, 'dashboard needs the password')
@@ -130,9 +130,11 @@ call('POST', '/api/exam', {'action': 'delete', 'examId': eid}, teacher=True)
 # validation, teacher edit, conflicts
 s, r = call('POST', '/api/validate', {'studentId': A, 'challengeId': 'c2'}, teacher=True)
 s, r = call('GET', '/api/student/' + A); check(r['validated'] == ['c2'], 'unlock next')
-s, r = call('POST', '/api/admin', {'action': 'put-work', 'work': work(A, 'Adriana', '4E')}, teacher=True); check(r.get('rev') == 1, 'teacher edits the work')
-s, r = call('POST', '/api/work', work(A, 'Adriana', '4E', rev=0)); check(s == 409, 'old version refused (409)')
-s, r = call('POST', '/api/work', work(A, 'Adriana', '4E', rev=1)); check(s == 200, 'new version accepted')
+s, r = call('POST', '/api/admin', {'action': 'put-work', 'work': work(A, 'Adriana', '4E', saveRev=1)}, teacher=True); check(r.get('rev') == 1, 'teacher edits the work')
+s, r = call('POST', '/api/work', work(A, 'Adriana', '4E', rev=0, saveRev=1)); check(s == 409, 'old version refused (409)')
+s, w = call('GET', '/api/work/' + A); check(w.get('saveRev') == 2 and w.get('adminRev') == 1, 'the teacher\'s version is the newest one', w.get('saveRev'))
+s, r = call('POST', '/api/work', work(A, 'Adriana', '4E', rev=1, saveRev=2)); check(s == 200 and r.get('savedRev') == 3, 'new version accepted', r)
+s, r = call('POST', '/api/work', work(A, 'Adriana', '4E', rev=1, saveRev=2)); check(s == 409 and r.get('stale'), 'a stale copy (old tab, old file) cannot erase newer work (409)', r)
 
 # 10. backups, 11. stats
 s, r = call('POST', '/api/backup/now', {}, teacher=True); check(s == 200 and r.get('date'), 'backup now')
@@ -150,7 +152,7 @@ s, r = call('GET', '/api/progress', teacher=True); me = [x for x in r['students'
 check((me.get('live') or {}).get('status') == 'running', 'presence seen by the teacher', me.get('live'))
 call('POST', '/api/validate', {'studentId': A, 'challengeId': 'c3'}, teacher=True)
 s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4E', 'ver': v1}); check(r.get('changed') and 'c3' in r.get('validated', []), 'teacher action: new version, status sent', r)
-s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4E', 'ver': r.get('ver'), 'work': work(A, 'Adriana', '4E', rev=1), 'live': {'status': 'editing'}}); check(s == 200 and r.get('savedAt'), 'sync saves the work')
+s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4E', 'ver': r.get('ver'), 'work': work(A, 'Adriana', '4E', rev=1, saveRev=3), 'live': {'status': 'editing'}}); check(s == 200 and r.get('savedAt') and r.get('savedRev') == 4, 'sync saves the work', r)
 if not TRUSTED:
     s, r = call('POST', '/api/sync', {'studentId': A, 'className': '4D', 'ver': None, 'work': work(A, 'Adriana', '4D', rev=1)}); check(s == 403, 'sync: the 4E code cannot save in 4D')
 
@@ -170,6 +172,10 @@ if '--wipe' in sys.argv:
     s, r = call('GET', '/api/roster', teacher=True); check(r['roster'] == before, 'class lists kept')
     s, t2 = call('GET', '/api/info', teacher=True); check(t2.get('classCodes', {}).get('4E') == CODES.get('4E'), 'class codes kept')
     s, r = call('POST', '/api/work', old); check(s == 410, 'a browser with old work is sent back to the welcome page (410)')
+    D = 'apitest-d%x' % int(time.time() * 1000)
+    late = work(D, 'Frederik', '4E'); late['createdAt'] = time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(time.time() - 600)) + '.000Z'  # clock 10 min late
+    s, r = call('POST', '/api/work', late); check(s == 200, 'a new student after the wipe is accepted even with a late clock', r)
+    call('POST', '/api/admin', {'action': 'delete', 'studentIds': [D]}, teacher=True)
 call('POST', '/api/roster', {'roster': saved_roster}, teacher=True)
 
 print(f'\n{"RESULT: ALL OK" if not fails else f"RESULT: {fails} FAILURE(S)"}')

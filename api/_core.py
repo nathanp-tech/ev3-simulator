@@ -291,6 +291,21 @@ def strip_programs(data):
     return snap
 
 
+PROGRAM_KEYS = ('program', 'robot', 'bestProgram')  # Blockly JSON: shown by Blockly only, never as HTML
+DEFANG = str.maketrans({'<': '‹', '>': '›', '"': '”'})
+
+
+def defang(v):
+    # What a student's browser sends is shown in the teacher dashboard: no HTML can get through.
+    if isinstance(v, str):
+        return v.translate(DEFANG)
+    if isinstance(v, list):
+        return [defang(x) for x in v]
+    if isinstance(v, dict):
+        return {defang(str(k)): (x if k in PROGRAM_KEYS else defang(x)) for k, x in v.items()}
+    return v
+
+
 def validated_count(s):
     return sum(1 for c in (s.get('challenges') or {}).values() if c.get('status') == 'validated')
 
@@ -371,9 +386,17 @@ class Api:
         return None
 
     def wiped_after(self, work):
-        """True when this work was created before the last "empty the database"."""
+        """Work created well before the last "empty the database" (older browsers still holding it). The students
+        of a wipe are also marked deleted (st:ID); one hour of margin for computers whose clock is late."""
         w, c = (self._raw_settings or {}).get('wipedAt'), work.get('createdAt')
-        return bool(w and c) and str(c) < w
+        if not (w and c):
+            return False
+        try:
+            def t(x):
+                return time.mktime(time.strptime(str(x)[:19], '%Y-%m-%dT%H:%M:%S'))
+            return t(c) < t(w) - 3600
+        except ValueError:
+            return False
 
     def snaps(self):
         return hash_dict(self.r(['HGETALL', P + 'snap'])[0])
@@ -400,14 +423,36 @@ class Api:
                ['RPUSH', P + 'backups', *[json.dumps(b) for b in index]])
         return day
 
-    def archive(self, reason):
+    def archive(self, reason, sids=None):
         snaps = self.snaps()
-        name = time.strftime('%Y-%m-%d_%H%M%S') + '_' + reason
+        if sids is not None:
+            snaps = {k: v for k, v in snaps.items() if k in set(sids)}
+        name = time.strftime('%Y-%m-%d_%H%M%S') + '_%03d%04d_' % (int(time.time() * 1000) % 1000, random.randrange(10000)) + reason
         self.r(['SET', P + 'archive:' + name, pack({'students': snaps, 'works': self.all_works(snaps)}), 'EX', 180 * 86400])
         return 'archive ' + name
 
+    def next_rev(self, sid, work):
+        """Save counter: a browser saving a copy older than the one on the server (an old tab, an old copy on another
+        computer, an old file) is refused (409, stale) and reloads the latest work instead of erasing it."""
+        stored = int(self.r(['HGET', P + 'srev', sid])[0] or 0)
+        try:
+            base = int(work.get('saveRev') or 0)
+        except (TypeError, ValueError):
+            base = 0
+        if base < stored:
+            return None
+        work['saveRev'] = stored + 1
+        return stored + 1
+
+    def teacher_rev(self, sid, work):
+        """A work written by the teacher (edit, restore) becomes the newest version: the student's browser reloads it
+        and saves from there."""
+        rev = int(self.r(['HGET', P + 'srev', sid])[0] or 0) + 1
+        work['saveRev'] = rev
+        return ['HSET', P + 'srev', sid, rev]
+
     def remove_cmds(self, sid):
-        return [['HDEL', P + 'snap', sid], ['HDEL', P + 'seen', sid], ['DEL', P + 'work:' + sid, P + 'hist:' + sid, P + 'notes:' + sid], ['HDEL', P + 'help', sid],
+        return [['HDEL', P + 'snap', sid], ['HDEL', P + 'srev', sid], ['HDEL', P + 'seen', sid], ['DEL', P + 'work:' + sid, P + 'hist:' + sid, P + 'notes:' + sid], ['HDEL', P + 'help', sid],
                 ['SET', P + 'st:' + sid, json.dumps({'deleted': True})]]
 
     def roster(self):
@@ -429,7 +474,11 @@ class Api:
         try:
             if method == 'GET':
                 return self.get(path, params, ctx)
+            if not isinstance(body, dict):
+                return 400, {'error': 'bad request'}
             return self.post(path, body, ctx)
+        except (TypeError, ValueError, AttributeError) as e:
+            return 400, {'error': 'bad request: ' + str(e)}
         except Exception as e:  # noqa: BLE001 - always answer in JSON
             return 500, {'error': str(e)}
 
@@ -460,6 +509,8 @@ class Api:
             ctl = hash_dict(self.r(['HGETALL', P + 'classctl'])[0])
             return 200, {'classes': {c: {'closed': bool(v.get('closed')), 'paused': bool(v.get('paused')), 'exam': bool((v.get('exam') or {}).get('active'))}
                                      for c, v in ctl.items() if v and (g == '*' or c == g)}, 'now': time.time()}
+        if path == '/api/names' and g != '*':
+            return 403, {'error': 'teacher code required'}
         if path == '/api/work/find' or path == '/api/names':
             snaps = [s for s in self.snaps().values() if s]
             if path == '/api/work/find':
@@ -477,6 +528,13 @@ class Api:
         m = re.fullmatch(r'/api/work/([\w-]+)', path)
         if m:
             w = self.get_json('work:' + m.group(1))
+            if w and g != '*':
+                # classmates know each other's names: never hand out a best exam program
+                # (the exam program being written stays: a student who reloads the page during an exam needs it back)
+                for ex in (w.get('exams') or {}).values():
+                    for slot in ((ex or {}).get('slots') or {}).values():
+                        if isinstance(slot, dict):
+                            slot.pop('bestProgram', None)
             return (200, w) if w else (404, {'error': 'not found'})
         m = re.fullmatch(r'/api/student/([\w-]+)', path)
         if m:
@@ -565,6 +623,10 @@ class Api:
             if not ID.fullmatch(sid):
                 return 400, {'error': 'bad id'}
             work = data.get('work')
+            if work is not None and not isinstance(work, dict):
+                return 400, {'error': 'bad work'}
+            work = defang(work)
+            data['live'] = defang(data.get('live'))
             cls = g if g != '*' else str(data.get('className') or '')
             if work is not None and g != '*' and (work.get('className') or '') != g:
                 return 403, {'error': 'this code is for another class'}
@@ -584,14 +646,18 @@ class Api:
                     return 410, {'error': 'the database was emptied', 'deleted': True}
                 if st is not None and int(work.get('adminRev') or 0) < st.get('rev', 0):
                     return 409, {'error': 'changed by the teacher', 'rev': st.get('rev', 0)}
+                rev = self.next_rev(sid, work)
+                if rev is None:
+                    return 409, {'error': 'a newer version of this work is on the server', 'stale': True}
                 snap = strip_programs(work)
                 snap['live'], snap['receivedAt'] = data.get('live'), time.time()
-                self.r(['HSET', P + 'snap', sid, json.dumps(snap)], ['SET', P + 'work:' + sid, json.dumps(work)])
-                out['savedAt'] = time.time()
+                self.r(['HSET', P + 'snap', sid, json.dumps(snap)], ['SET', P + 'work:' + sid, json.dumps(work)], ['HSET', P + 'srev', sid, rev])
+                out['savedAt'], out['savedRev'] = time.time(), rev
             elif data.get('live') is not None:
                 self.r(['HSET', P + 'seen', sid, json.dumps({'t': time.time(), 'live': data['live']})])
             return 200, out
         if path in ('/api/progress', '/api/work'):
+            data = defang(data)
             sid = str(data.get('studentId', ''))
             if not ID.fullmatch(sid):
                 return 400, {'error': 'bad id'}
@@ -602,13 +668,16 @@ class Api:
                 return 410, {'error': 'deleted by the teacher', 'deleted': True}
             if int(data.get('adminRev') or 0) < st.get('rev', 0):
                 return 409, {'error': 'changed by the teacher', 'rev': st.get('rev', 0)}
+            rev = self.next_rev(sid, data)
+            if rev is None:
+                return 409, {'error': 'a newer version of this work is on the server', 'stale': True}
             snap = strip_programs(data)
             snap['receivedAt'] = time.time()
-            cmds = [['HSET', P + 'snap', sid, json.dumps(snap)]]
+            cmds = [['HSET', P + 'snap', sid, json.dumps(snap)], ['HSET', P + 'srev', sid, rev]]
             if path == '/api/work':
                 cmds.append(['SET', P + 'work:' + sid, json.dumps({k: v for k, v in data.items() if k != 'live'})])
             self.r(*cmds)
-            return 200, {'ok': True, 'savedAt': time.time(), 'validated': st.get('validated', []), 'rev': st.get('rev', 0),
+            return 200, {'ok': True, 'savedAt': time.time(), 'savedRev': rev, 'validated': st.get('validated', []), 'rev': st.get('rev', 0),
                          'helpDone': st.get('helpDone', 0), 'notesRev': st.get('notesRev', 0)}
         if path == '/api/help':
             # Student: on = true asks for help, false cancels. Teacher: on = false marks it as done.
@@ -632,7 +701,9 @@ class Api:
             if self.status(sid).get('deleted'):
                 return 410, {'error': 'deleted'}
             versions = unpack(self.r(['HGET', P + 'hist:' + sid, slot])[0], []) or []
-            v = {'t': data.get('t') or time.strftime('%Y-%m-%dT%H:%M:%S'), 'kind': clean_text(data.get('kind'), 10), 'score': data.get('score'),
+            score = data.get('score')
+            v = {'t': clean_text(data.get('t'), 40) or time.strftime('%Y-%m-%dT%H:%M:%S'), 'kind': 'check' if data.get('kind') == 'check' else 'run',
+                 'score': max(0, min(100, int(score))) if isinstance(score, (int, float)) else None,
                  'program': data['program'], 'robot': data.get('robot')}
             versions = (versions + [v])[-HISTORY_MAX:]
             self.r(['HSET', P + 'hist:' + sid, slot, pack(versions)])
@@ -677,7 +748,9 @@ class Api:
             best = res.setdefault('challenges', {}).get(chid)
             score = max(0, min(100, int(data.get('score') or 0)))
             if not best or score > best.get('score', -1):
-                res['challenges'][chid] = {'score': score, 'at': time.time(), 'program': data.get('program'), 'robot': data.get('robot'), 'checks': (best or {}).get('checks', 0) + 1}
+                alts = ((best or {}).get('alts') or []) + ([{k: best.get(k) for k in ('score', 'program', 'robot')}] if best and best.get('program') else [])
+                res['challenges'][chid] = {'score': score, 'at': time.time(), 'program': data.get('program'), 'robot': data.get('robot'), 'checks': (best or {}).get('checks', 0) + 1,
+                                           'alts': alts[-4:]}
             else:
                 best['checks'] = best.get('checks', 0) + 1
             self.r(['HSET', P + 'examres:' + eid, sid, json.dumps(res)])
@@ -696,13 +769,26 @@ class Api:
             return 200, {'ok': True}
         if path == '/api/settings':
             cur = {**DEFAULT_SETTINGS, **(self.get_json('settings', {}) or {})}
-            new = {**cur, **{k: data[k] for k in DEFAULT_SETTINGS if k in data}}
+            new = dict(cur)
+            for k, dv in DEFAULT_SETTINGS.items():
+                if k in data:
+                    v = data[k]
+                    if isinstance(dv, bool):
+                        v = bool(v)
+                    else:
+                        v = float(v)  # ValueError → 400
+                        v = int(v) if isinstance(dv, int) else v
+                        if k == 'passScore' and not 0 <= v <= 100:
+                            return 400, {'error': 'the pass score is a percentage (0 to 100)'}
+                    new[k] = v
             if isinstance(data.get('classCodes'), dict):
                 codes = {clean_text(c, 20): re.sub(r'\s+', '', str(v or ''))[:20] for c, v in data['classCodes'].items()}
-                vals = [v for v in codes.values() if v]
+                roster = self.roster()
+                merged = {c: v for c, v in {**(new.get('classCodes') or {}), **codes}.items() if v and (c in roster or c in codes)}
+                vals = list(merged.values())
                 if len(vals) != len(set(vals)) or any(len(v) < 3 for v in vals):
                     return 400, {'error': 'each class needs its own code (at least 3 characters)'}
-                new['classCodes'] = {**(new.get('classCodes') or {}), **codes}
+                new['classCodes'] = merged
             new.pop('studentCode', None)
             self.r(['SET', P + 'settings', json.dumps(new)])
             self._codes_t = 0
@@ -778,12 +864,13 @@ class Api:
                     return 400, {'error': 'bad student'}
                 rev = st.get('rev', 0) + 1
                 work['adminRev'] = rev
+                srev = self.teacher_rev(sid, work)
                 old = jload(self.r(['HGET', P + 'snap', sid])[0], {}) or {}
                 snap = strip_programs(work)
                 snap['receivedAt'] = old.get('receivedAt', 0)
                 snap['live'] = old.get('live')
                 st.update({'rev': rev, 'validated': []})
-                self.r(['SET', P + 'work:' + sid, json.dumps(work)], ['HSET', P + 'snap', sid, json.dumps(snap)], ['SET', P + 'st:' + sid, json.dumps(st)])
+                self.r(['SET', P + 'work:' + sid, json.dumps(work)], ['HSET', P + 'snap', sid, json.dumps(snap)], ['SET', P + 'st:' + sid, json.dumps(st)], srev)
                 return 200, {'ok': True, 'rev': rev}
             if action == 'clear-extras':
                 # Part of "reset a student": program history, teacher comments, help request.
@@ -802,7 +889,7 @@ class Api:
                 return 200, {'ok': True}
             if action == 'delete':
                 ids = [str(i) for i in data.get('studentIds') or [] if ID.fullmatch(str(i))]
-                dest = self.archive('deleted')
+                dest = self.archive('deleted', ids)
                 cmds = [c for sid in ids for c in self.remove_cmds(sid)]
                 if cmds:
                     self.r(*cmds)
@@ -816,6 +903,7 @@ class Api:
                     st = jload(raw, {}) or {}
                     rev = max(st.get('rev', 0), int(work.get('adminRev') or 0)) + 1
                     work['adminRev'] = rev
+                    cmds.append(self.teacher_rev(sid, work))
                     snap = strip_programs(work)
                     snap['receivedAt'] = 0
                     cmds += [['SET', P + 'work:' + sid, json.dumps(work)], ['HSET', P + 'snap', sid, json.dumps(snap)], ['SET', P + 'st:' + sid, json.dumps({'rev': rev})]]
@@ -827,8 +915,12 @@ class Api:
             if action == 'wipe':
                 # Empty the database: everything goes, except the class lists (names) and the settings (class codes…).
                 keys = [k for k in (self.r(['KEYS', P + '*'])[0] or []) if k not in (P + 'roster', P + 'settings')]
+                gone = [k[len(P + 'work:'):] for k in keys if k.startswith(P + 'work:')] + list(self.snaps())
                 for i in range(0, len(keys), 200):
                     self.r(['DEL', *keys[i:i + 200]])
+                marks = [['SET', P + 'st:' + sid, json.dumps({'deleted': True})] for sid in sorted(set(gone)) if ID.fullmatch(sid)]
+                for i in range(0, len(marks), 60):
+                    self.r(*marks[i:i + 60])
                 raw = self.get_json('settings', {}) or {}
                 raw['wipedAt'] = time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime()) + '.999Z'
                 self.r(['SET', P + 'settings', json.dumps(raw)])

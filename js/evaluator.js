@@ -2,12 +2,16 @@
 'use strict';
 
 const EVAL_SEEDS = [1103, 2207, 3301, 4409, 5503];
+// Official trials of a challenge: its own seeds (chosen so that the layouts really differ), else the common ones.
+const checkSeeds = (ch) => (ch.checkSeeds || EVAL_SEEDS).slice(0, ch.trials || 1);
 const SETTLE_STEPS = 80; // 0.4 s of coasting after the program ends
 
 function prepareChallenge(sim, brick, ch, seed, config) {
   const rng = mulberry32(seed);
   const setup = ch.setup(rng);
   if (config) sim.setConfig(config);
+  sim.manual = {}; // a touch sensor held down in Port View must not change a trial
+  brick.buttons = {};
   sim.loadMat(setup.mat);
   sim.resetRobot(setup.start);
   const n = ch.noise || 0;
@@ -23,6 +27,7 @@ function prepareChallenge(sim, brick, ch, seed, config) {
 function challengeAfterStep(ctx) {
   const ch = ctx.ch;
   if (ch.step) ch.step(ctx);
+  ctx.velBeforeEnd = ctx.sim.vel;
   if (ch.done && ch.done(ctx)) return 'complete';
   if (ctx.sim.t >= ch.timeLimit) return 'timeout';
   return null;
@@ -75,7 +80,7 @@ async function runTrial(ch, prog, seed, { sim, brick, config, onFrame, onLog } =
 }
 
 async function evaluateProgram(ch, prog, opts) {
-  const seeds = EVAL_SEEDS.slice(0, ch.trials || 1);
+  const seeds = checkSeeds(ch);
   const trials = [];
   for (let i = 0; i < seeds.length; i++) {
     if (opts.onTrial) opts.onTrial(i, seeds.length);

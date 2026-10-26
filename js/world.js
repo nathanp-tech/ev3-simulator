@@ -76,11 +76,28 @@ const SANDBOX_MATS = [
 const inRect = (x, y, r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 const angDiff = (a, b) => { let d = (a - b) % 360; if (d > 180) d -= 360; if (d < -180) d += 360; return Math.abs(d); };
 const crit = (label, ok, max, partial = null) => ({ label, max, points: ok ? max : partial !== null ? partial : 0, ok: !!ok });
-const isStopped = (ctx) => ctx.programEnded || ctx.sim.vel < 0.5;
+// Stopped by the program itself (a timeout brakes the motors: what counts is the speed just before it).
+const isStopped = (ctx) => ctx.programEnded || (ctx.velBeforeEnd !== undefined ? ctx.velBeforeEnd : ctx.sim.vel) < 0.5;
 // Secondary criteria only score if the robot really moved.
 const moved = (ctx, d = 20) => Math.hypot(ctx.sim.robot.x - ctx.start.x, ctx.sim.robot.y - ctx.start.y) >= d;
 const anyColorSees = (ctx, c) => ctx.sim.sensorPorts('color').some((p) => ctx.sim.colorKey(p) === c);
+// A color sensor looks at the floor between x0 and x1 (a line edge counts: "reflected light < 50" stops there).
+const anyColorOverX = (ctx, x0, x1) => ctx.sim.sensorPorts('color').some((p) => { const x = ctx.sim.colorPoint(p)[0]; return x >= x0 && x <= x1; });
 const anyTouchPressed = (ctx) => ctx.sim.sensorPorts('touch').some((p) => ctx.sim.touchPressed(p));
+// A touch sensor presses on a wall of the challenge (the border of the table does not count).
+const touchOnWall = (ctx) => ctx.sim.sensorPorts('touch').some((p) => { const poly = ctx.sim.bumperPoly(p); return ctx.sim.obstacles.some((o) => polysOverlap(poly, o.poly)); });
+// The robot's body (not its touch sensor) is against a wall of the challenge. Added up over the whole trial: a robot
+// stopped by its touch sensor never touches with its body (the sensor sticks out 1.4 cm); one that rams, even in
+// short bursts or at an angle, does.
+const BODY_NEAR = boxPoly([ROBOT.body.x0 - 0.3, ROBOT.body.y0 - 0.3, ROBOT.body.x1 + 0.3, ROBOT.body.y1 + 0.3]);
+function pushesWall(ctx) {
+  const s = ctx.state, { x, y, th } = ctx.sim.robot;
+  if (!ctx.sim.contact) return;
+  const body = transformPoly(BODY_NEAR, x, y, th);
+  if (ctx.sim.obstacles.some((o) => polysOverlap(body, o.poly))) s.pushT = (s.pushT || 0) + DT;
+  if (s.pushT > PUSH_LIMIT) s.crashed = true;
+}
+const PUSH_LIMIT = 0.4; // seconds
 const frontGap = (ctx) => ctx.sim.rayDistance(ctx.sim.worldPoint([ROBOT.body.x1, 0]), ctx.sim.robot.th);
 const zoneOverlay = (z, color, text) => (c) => {
   c.fillStyle = color; c.globalAlpha = 0.25; c.fillRect(z.x, z.y, z.w, z.h); c.globalAlpha = 1;
@@ -104,6 +121,8 @@ const CATEGORIES = [
 ];
 const categoryOf = (ch) => CATEGORIES.find((c) => c.id === (ch && ch.cat)) || CATEGORIES[0];
 
+// checkSeeds: the official trials, chosen so that the layouts really differ (low / middle / high positions,
+// different colors and numbers of lines): a program tuned by hand to the check cannot pass.
 const CHALLENGES = [
   {
     cat: 'motion', id: 'first-steps', hints: ["Use a Movement block: \"move ⬆ for … rotations\".", "One wheel rotation moves the robot about 17.6 cm. How many rotations make 70 cm? (70 ÷ 17.6)"], title: '1. First steps', level: 1, timeLimit: 20, trials: 1, noise: 0,
@@ -144,8 +163,8 @@ const CHALLENGES = [
       const v = ctx.state.visited, all = v.every(Boolean);
       return [
         crit('Goes through corner 1', v[0], 15), crit('Goes through corner 2', v[1], 15), crit('Goes through corner 3', v[2], 15),
-        crit('Back at the starting point (± 7 cm)', all && Math.hypot(x - 50, y - 95) < 7, 35),
-        crit('Same heading as at the start (± 15°)', all && angDiff(ctx.sim.robot.th / DEG, 0) < 15, 15),
+        crit('Back at the starting point (± 7 cm)', all && Math.hypot(x - 50, y - 95) < 7, 25),
+        crit('Same heading as at the start (± 15°)', all && angDiff(ctx.sim.robot.th / DEG, 0) < 15, 25),
         crit('No collision', v[0] && ctx.sim.collisions === 0, 5),
       ];
     },
@@ -165,15 +184,15 @@ const CHALLENGES = [
     evaluate(ctx) {
       const { x, y } = ctx.sim.robot, inside = inRect(x, y, ctx.data.zone);
       return [
-        crit('Parked inside the garage', inside, 50),
-        crit('Facing the back wall (± 15°)', inside && angDiff(ctx.sim.robot.th / DEG, -90) < 15, 20),
-        crit('No collision with the walls', moved(ctx) && ctx.sim.collisions === 0, 20),
+        crit('Parked inside the garage', inside, 45),
+        crit('Facing the back wall (± 15°)', inside && angDiff(ctx.sim.robot.th / DEG, -90) < 15, 30),
+        crit('No collision with the walls', moved(ctx) && ctx.sim.collisions === 0, 15),
         crit('The robot is not moving at the end', moved(ctx) && isStopped(ctx), 10),
       ];
     },
   },
   {
-    cat: 'touch', id: 'touch-return', hints: ["Drive until the touch sensor is pressed: \"wait until pressed\".", "To come back the same distance, reset the motor position at the start and read \"B relative position\" when you touch the wall. Or simply drive back with a timer."], title: '4. Touch and come back', level: 2, timeLimit: 40, trials: 3, noise: 0.02,
+    cat: 'touch', id: 'touch-return', checkSeeds: [101, 10, 315], hints: ["Drive until the touch sensor is pressed: \"wait until pressed\".", "To come back the same distance, reset the motor position at the start and read \"B relative position\" when you touch the wall. Or simply drive back with a timer."], title: '4. Touch and come back', level: 2, timeLimit: 40, trials: 3, noise: 0.02,
     skills: 'Touch sensor, waiting',
     description: 'Drive until the <b>touch sensor hits the wall</b>, then <b>come back into the blue start zone</b>. The wall moves in each trial.',
     setup(rng) {
@@ -184,18 +203,22 @@ const CHALLENGES = [
       };
     },
     overlay(c, d) { zoneOverlay(d.zone, '#0090f5', 'START')(c); },
-    step(ctx) { if (anyTouchPressed(ctx)) ctx.state.touched = true; },
+    step(ctx) {
+      if (touchOnWall(ctx)) ctx.state.touched = true;
+      pushesWall(ctx);
+    },
     evaluate(ctx) {
       const { x, y } = ctx.sim.robot;
+      ctx.state.touched = ctx.state.touched && !ctx.state.crashed;
       return [
-        crit('The touch sensor touched the wall', ctx.state.touched, 40),
+        crit(ctx.state.crashed ? 'The touch sensor touched the wall (✖ the robot kept pushing the wall: stop when the touch sensor is pressed)' : 'The touch sensor touched the wall', ctx.state.touched, 40),
         crit('Back in the start zone', ctx.state.touched && inRect(x, y, ctx.data.zone), 40),
         crit('Program finished within the time limit', ctx.state.touched && ctx.programEnded, 20),
       ];
     },
   },
   {
-    cat: 'distance', id: 'stop-wall', hints: ["The wall moves in every trial: you cannot use a fixed distance. Use the ultrasonic sensor (port 4 by default).", "Start moving, then \"wait until distance is less than … cm\", then \"stop moving\"."], title: '5. Stop before the wall', level: 2, timeLimit: 25, trials: 3, noise: 0.02,
+    cat: 'distance', id: 'stop-wall', checkSeeds: [176, 10, 4], hints: ["The wall moves in every trial: you cannot use a fixed distance. Use the ultrasonic sensor (port 4 by default).", "Start moving, then \"wait until distance is less than … cm\", then \"stop moving\"."], title: '5. Stop before the wall', level: 2, timeLimit: 25, trials: 3, noise: 0.02,
     skills: 'Ultrasonic sensor',
     description: 'The wall is placed at a <b>different distance in each trial</b>. Drive forward and stop <b>between 3 and 12 cm</b> from the wall without touching it. Use the ultrasonic sensor.',
     setup(rng) {
@@ -214,7 +237,7 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'distance', id: 'corridor', title: '6. Turn at the wall', level: 3, timeLimit: 40, trials: 3, noise: 0.01,
+    cat: 'distance', id: 'corridor', checkSeeds: [153, 1191, 349], title: '6. Turn at the wall', level: 3, timeLimit: 40, trials: 3, noise: 0.01,
     hints: ['The same idea twice: drive until a wall is close, then do something. The walls move in each trial: measuring is not enough.', '"start moving", "wait until distance < 15 cm", "stop moving", turn left 90°, then "start moving", "wait until distance < 10 cm", "stop moving".'],
     skills: 'Ultrasonic sensor, turns',
     description: 'Drive until you are close to the <b>first wall</b>, turn <b>left</b>, then stop <b>4 to 15 cm</b> from the <b>second wall</b>. Both walls move in each trial.',
@@ -224,7 +247,7 @@ const CHALLENGES = [
     },
     overlay(c, d) { zoneOverlay({ x: d.wx - 45, y: d.wy + 10, w: 45, h: 11 }, '#00a651')(c); },
     evaluate(ctx) {
-      const gap = frontGap(ctx), turned = angDiff(ctx.sim.robot.th / DEG, -90) < 20 && ctx.sim.robot.y < 110;
+      const gap = frontGap(ctx), turned = angDiff(ctx.sim.robot.th / DEG, -90) < 20 && ctx.sim.robot.y < 110 && ctx.sim.robot.x > ctx.data.wx - 45;
       return [
         crit('Turned left at the first wall', turned, 25),
         crit(`Stops 4 to 15 cm from the second wall (measured: ${gap.toFixed(1)} cm)`, turned && gap >= 4 && gap <= 15, 45, turned && gap > 15 && gap < 30 ? 15 : 0),
@@ -234,7 +257,7 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'stop-line', hints: ["Use the color sensor (port 3 by default), it looks at the floor.", "\"start moving\", then \"wait until color is black\", then \"stop moving\"."], title: '7. Stop on the line', level: 2, timeLimit: 25, trials: 3, noise: 0.02,
+    cat: 'color', id: 'stop-line', checkSeeds: [23, 10, 315], hints: ["Use the color sensor (port 3 by default), it looks at the floor.", "\"start moving\", then \"wait until color is black\", then \"stop moving\"."], title: '7. Stop on the line', level: 2, timeLimit: 25, trials: 3, noise: 0.02,
     skills: 'Color sensor',
     description: 'A black line is placed at a <b>different distance in each trial</b>. Stop with your <b>color sensor right above the line</b>.',
     setup(rng) {
@@ -243,14 +266,14 @@ const CHALLENGES = [
     },
     evaluate(ctx) {
       return [
-        crit('A color sensor is above the black line', anyColorSees(ctx, 'black'), 60),
+        crit('A color sensor is above the black line', anyColorSees(ctx, 'black') || anyColorOverX(ctx, ctx.data.lx - 1, ctx.data.lx + 4), 60),
         crit('The robot is not moving at the end', moved(ctx) && isStopped(ctx), 20),
         crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 20),
       ];
     },
   },
   {
-    cat: 'color', id: 'detect-color', hints: ["Drive until the color sensor no longer sees white, then stop on the colored zone.", "Use the \"3 color\" reporter inside \"write … at line 1\" to show the color name."], title: '8. Detect the color', level: 3, timeLimit: 25, trials: 3, noise: 0.02,
+    cat: 'color', id: 'detect-color', checkSeeds: [555, 153, 41], hints: ["Drive until the color sensor no longer sees white, then stop on the colored zone.", "Use the \"3 color\" reporter inside \"write … at line 1\" to show the color name."], title: '8. Detect the color', level: 3, timeLimit: 25, trials: 3, noise: 0.02,
     skills: 'Color sensor, conditions, display',
     description: 'Drive to the <b>colored zone</b> (its color changes in each trial), stop on it and <b>write the name of the color</b> on the display (red, green, blue or yellow).',
     setup(rng) {
@@ -259,12 +282,12 @@ const CHALLENGES = [
       const px = Math.round(70 + rng() * 40);
       return {
         mat: { w: 180, h: 60, draw(ctx) { drawGrid(ctx, 180, 60); ctx.fillStyle = PAL[color]; ctx.fillRect(px, 10, 30, 40); } },
-        start: { x: 20, y: 30, th: 0 }, data: { color },
+        start: { x: 20, y: 30, th: 0 }, data: { color, px },
       };
     },
     evaluate(ctx) {
       const s = ctx.screen.toLowerCase();
-      const shown = ['red', 'green', 'blue', 'yellow', 'black', 'white', 'brown'].filter((n) => s.includes(n));
+      const shown = ['red', 'green', 'blue', 'yellow', 'black', 'white', 'brown'].filter((n) => new RegExp(`\\b${n}\\b`).test(s));
       return [
         crit(`The display shows the right color (${ctx.data.color})`, shown.length === 1 && shown[0] === ctx.data.color, 60),
         crit('The robot stops on the colored zone', anyColorSees(ctx, ctx.data.color) && isStopped(ctx), 40),
@@ -272,21 +295,22 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'line-follow', hints: ["Follow one edge of the line: when the sensor sees dark, turn one way; when it sees white, turn the other way.", "Inside a \"forever\" loop: if reflected light < 50 then \"start moving at 10 40 % speed\" else \"start moving at 40 10 % speed\". Then tune the numbers!"], title: '9. Line following', level: 3, timeLimit: 60, trials: 1, noise: 0.02,
+    cat: 'color', id: 'line-follow', checkSeeds: [153, 4], hints: ["Follow one edge of the line: when the sensor sees dark, turn one way; when it sees white, turn the other way.", "Inside a \"forever\" loop: if reflected light < 50 then \"start moving at 10 40 % speed\" else \"start moving at 40 10 % speed\". Then tune the numbers!"], title: '9. Line following', level: 3, timeLimit: 60, trials: 2, noise: 0.02,
     skills: 'Color sensor, loops, conditions',
-    description: 'Do <b>one full lap</b> of the track following the black line (counter-clockwise), passing every checkpoint in order. Bonus if the lap takes less than 30 s.',
-    setup() {
-      return { mat: SANDBOX_MATS[1], start: { x: 90, y: 115, th: 0 }, data: { cps: [[160, 115], [200, 75], [160, 35], [60, 35], [20, 75], [60, 115]] } };
+    description: 'Do <b>one full lap</b> of the track following the black line (counter-clockwise), passing every checkpoint in order. The start moves along the line in each trial. Bonus if the lap takes less than 30 s.',
+    setup(rng) {
+      const sx = Math.round(75 + rng() * 60);
+      return { mat: SANDBOX_MATS[1], start: { x: sx, y: 115, th: 0 }, data: { sx, cps: [[160, 115], [200, 75], [160, 35], [60, 35], [20, 75], [60, 115]] } };
     },
     init(ctx) { ctx.state.next = 0; ctx.state.lapT = null; },
     step(ctx) {
       const { x, y } = ctx.sim.robot, s = ctx.state, cps = ctx.data.cps;
       if (s.next < cps.length && Math.hypot(x - cps[s.next][0], y - cps[s.next][1]) < 13) s.next++;
-      if (s.next === cps.length && s.lapT === null && Math.hypot(x - 90, y - 115) < 13) s.lapT = ctx.sim.t;
+      if (s.next === cps.length && s.lapT === null && Math.hypot(x - ctx.data.sx, y - 115) < 13) s.lapT = ctx.sim.t;
     },
     overlay(c, d, s) {
       d.cps.forEach(([x, y], i) => ring(x, y, 13, '#ffab19', s && s.next > i)(c));
-      ring(90, 115, 13, '#0090f5', s && s.lapT !== null && s.lapT !== undefined)(c);
+      ring(d.sx, 115, 13, '#0090f5', s && s.lapT !== null && s.lapT !== undefined)(c);
     },
     done(ctx) { return ctx.state.lapT !== null; },
     evaluate(ctx) {
@@ -298,9 +322,9 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'count-lines', hints: ["Make a variable, set it to 0, and add 1 each time the color sensor sees black.", "After counting a line, wait until the sensor sees white again, otherwise you count the same line many times. Repeat until the color is red, then write the variable on the display."], title: '10. Count the lines', level: 4, timeLimit: 40, trials: 3, noise: 0.02,
+    cat: 'color', id: 'count-lines', checkSeeds: [7, 4, 6], hints: ["Make a variable, set it to 0, and add 1 each time the color sensor sees black.", "After counting a line, wait until the sensor sees white again, otherwise you count the same line many times. Repeat until the color is red, then write the variable on the display."], title: '10. Count the lines', level: 4, timeLimit: 40, trials: 3, noise: 0.02,
     skills: 'Variables, color sensor, display',
-    description: 'Drive to the <b>red zone</b> counting the black lines you cross (their number changes in each trial), stop in the red zone, then <b>show the number of lines</b> on the brick display.',
+    description: 'Drive to the <b>red zone</b> counting the black lines you cross (their number changes in each trial), stop in the red zone, then <b>show the number of lines</b> on the brick display (only that number).',
     setup(rng) {
       const n = 2 + Math.floor(rng() * 5);
       const xs = [];
@@ -325,7 +349,7 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'combined', id: 'color-route', title: '11. Follow the color code', level: 4, timeLimit: 30, trials: 3, noise: 0.01,
+    cat: 'combined', id: 'color-route', checkSeeds: [7, 1, 8], title: '11. Follow the color code', level: 4, timeLimit: 30, trials: 3, noise: 0.01,
     hints: ['First drive until the color sensor sees the card (not white any more). Then decide with an "if … else" block.', 'if "color is red" → turn left 90° and drive about 55 cm; else → turn right 90° and drive about 55 cm.'],
     skills: 'Color sensor, conditions, turns',
     description: 'A <b>red or blue card</b> lies on your way (its color changes in each trial). Drive onto it, then go to the zone of the <b>same color</b>: <b>red → turn left</b>, <b>blue → turn right</b>.',
@@ -356,7 +380,7 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'combined', id: 'line-wall', title: '12. Line, then wall', level: 4, timeLimit: 40, trials: 3, noise: 0.01,
+    cat: 'combined', id: 'line-wall', checkSeeds: [153, 2286, 2426], title: '12. Line, then wall', level: 4, timeLimit: 40, trials: 3, noise: 0.01,
     hints: ['Two sensors, one after the other: the color sensor finds the line, then the ultrasonic sensor finds the wall.', '"start moving", "wait until color is black", "stop moving", turn right 90°, "start moving", "wait until distance < 10 cm", "stop moving".'],
     skills: 'Color sensor, ultrasonic sensor, turns',
     description: 'Drive to the <b>black line</b>, turn <b>right</b> there, then stop <b>4 to 15 cm</b> from the wall. The line and the wall move in each trial.',
@@ -367,17 +391,18 @@ const CHALLENGES = [
     overlay(c, d) { zoneOverlay({ x: d.lx - 30, y: d.wy - 15, w: 45, h: 11 }, '#00a651')(c); },
     evaluate(ctx) {
       const gap = frontGap(ctx), turned = angDiff(ctx.sim.robot.th / DEG, 90) < 20;
-      const atLine = Math.abs(ctx.sim.robot.x - (ctx.data.lx - 7.5)) < 10;
+      const offsets = ctx.sim.sensorPorts('color').map((p) => COLOR_GEO[ctx.sim._mount(p)][0]);
+      const atLine = (offsets.length ? offsets : [7.5]).some((o) => Math.abs(ctx.sim.robot.x - (ctx.data.lx + 1.5 - o)) < 10);
       return [
         crit('Turned right at the line', turned && atLine, 30),
-        crit(`Stops 4 to 15 cm from the wall (measured: ${gap.toFixed(1)} cm)`, turned && gap >= 4 && gap <= 15, 40, turned && gap > 15 && gap < 30 ? 15 : 0),
+        crit(`Stops 4 to 15 cm from the wall (measured: ${gap.toFixed(1)} cm)`, turned && atLine && gap >= 4 && gap <= 15, 40, turned && atLine && gap > 15 && gap < 30 ? 15 : 0),
         crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 15),
         crit('The robot is not moving at the end', moved(ctx) && isStopped(ctx), 15),
       ];
     },
   },
   {
-    cat: 'combined', id: 'bounce', title: '13. Bump three times', level: 4, timeLimit: 60, trials: 3, noise: 0.01,
+    cat: 'combined', id: 'bounce', checkSeeds: [19, 160, 10], title: '13. Bump three times', level: 4, timeLimit: 60, trials: 3, noise: 0.01,
     hints: ['Repeat 3 times: drive forward until the touch sensor is pressed, then drive backward until the color sensor sees the blue line.', '"repeat 3": "start moving forward", "wait until touch pressed", "start moving backward", "wait until color is blue". After the loop: "stop moving".'],
     skills: 'Touch sensor, color sensor, loops',
     description: 'Touch the wall with the <b>touch sensor</b>, drive back to the <b>blue line</b>, and do it <b>3 times</b>. Finish with the color sensor on the blue line. The wall moves in each trial.',
@@ -385,12 +410,19 @@ const CHALLENGES = [
       const wx = Math.round(120 + rng() * 80);
       return { mat: { w: 240, h: 80, draw(ctx) { drawGrid(ctx, 240, 80); ctx.fillStyle = PAL.blue; ctx.fillRect(40, 0, 8, 80); }, obstacles: [wall(wx, 0, 6, 80)] }, start: { x: 70, y: 40, th: 0 }, data: { wx } };
     },
-    init(ctx) { ctx.state.hits = 0; ctx.state.pressed = false; },
-    step(ctx) { const p = anyTouchPressed(ctx); if (p && !ctx.state.pressed) ctx.state.hits++; ctx.state.pressed = p; },
+    init(ctx) { ctx.state.hits = 0; ctx.state.pressed = false; ctx.state.blueSince = true; },
+    step(ctx) {
+      const s = ctx.state, p = touchOnWall(ctx);
+      if (anyColorSees(ctx, 'blue')) s.blueSince = true;
+      // a hit counts only after a trip back to the blue line
+      if (p && !s.pressed && s.blueSince) { s.hits++; s.blueSince = false; }
+      s.pressed = p;
+      pushesWall(ctx);
+    },
     evaluate(ctx) {
-      const h = ctx.state.hits;
+      const h = ctx.state.crashed ? 0 : ctx.state.hits;
       return [
-        crit(`Touched the wall 3 times (counted: ${h})`, h === 3, 50, h < 3 ? h * 15 : 0),
+        crit(ctx.state.crashed ? 'Touched the wall 3 times (✖ the robot kept pushing the wall: stop when the touch sensor is pressed)' : `Touched the wall 3 times, back to the blue line in between (counted: ${h})`, h === 3, 50, h < 3 ? h * 15 : 0),
         crit('Ends with the color sensor on the blue line', h >= 1 && anyColorSees(ctx, 'blue'), 30),
         crit('The robot is not moving at the end', h >= 1 && isStopped(ctx), 20),
       ];

@@ -15,8 +15,9 @@ const CR = {
 const currentRoster = () => CR.roster || ROSTER;
 async function loadRoster() {
   const [r, c] = await Promise.all([Sync.getJson('api/roster'), Sync.getJson('api/classctl')]);
-  CR.roster = r && r.roster && Object.keys(r.roster).length ? r.roster : null;
-  CR.classStatus = (c && c.classes) || {};
+  CR.rosterFailed = !r;
+  if (r) CR.roster = r.roster && Object.keys(r.roster).length ? r.roster : null; // no answer: keep the last lists
+  if (c) CR.classStatus = c.classes || {};
 }
 const classClosed = (cls) => !!(CR.classStatus[cls] && CR.classStatus[cls].closed);
 
@@ -182,7 +183,7 @@ function renderExam() {
     return `${i ? '<span class="step-line"></span>' : ''}<button class="step open${id === ch.id ? ' current' : ''}" data-ch="${esc(id)}" title="${esc(chTitle(id))}${s.best !== null ? ' · best ' + s.best + ' %' : ''}">${s.best !== null ? s.best + '%' : i + 1}</button>`;
   }).join('');
   $('challengeTitle').textContent = `📝 ${e.title} · ${k + 1} / ${e.challenges.length}: ${chTitle(ch.id)}`;
-  $('challengeMeta').textContent = `${categoryOf(ch).icon} ${categoryOf(ch).label} · Level ${ch.level}`;
+  $('challengeMeta').textContent = `${categoryOf(ch).icon} ${categoryOf(ch).label} · Level ${ch.level} · ⏱ ${ch.timeLimit} s per trial`;
   $('btnSolution').hidden = true;
   $('challengeDesc').innerHTML = `${ch.description}<span class="skills">Skills: ${esc(ch.skills)}</span>`;
   const hints = e.hints ? ch.hints || [] : [];
@@ -207,12 +208,33 @@ function onExamGrade(res) {
   if (slot.best === null || res.score > slot.best) { slot.best = res.score; slot.bestProgram = program; }
   Progress.log('exam-check', id, res.score);
   Progress.persist();
-  Sync.post('api/exam/result', { studentId: Progress.data.studentId, examId: App.exam.id, challengeId: id, score: res.score, program, robot, name: Progress.data.name, className: Progress.data.className });
+  queueExamResult({ studentId: Progress.data.studentId, examId: App.exam.id, challengeId: id, score: res.score, program, robot, name: Progress.data.name, className: Progress.data.className });
   renderExam();
   const trials = res.trials.map((t, i) => `<div class="trial"><h4><span>Trial ${i + 1}</span><span>${t.score} %</span></h4>${t.criteria.length ? criteriaHtml(t.criteria) : '<span class="muted">The program could not start.</span>'}</div>`).join('');
   openModal(`<h2>📝 Checked</h2><div class="big-score">${res.score} %</div>
     <p>Your best score for this challenge: <b>${slot.best} %</b>. Only your best check counts: you can keep improving until the end of the exam.</p>
     ${trials}<div style="text-align:right"><button class="primary" onclick="closeModal()">OK</button></div>`);
+}
+// Exam results wait in the saved work until the server has them (a check made while the network was down is sent later).
+function queueExamResult(r) {
+  (Progress.data.examQueue = Progress.data.examQueue || []).push(r);
+  Progress.persist();
+  flushExamResults();
+}
+let examFlushing = false;
+async function flushExamResults() {
+  const q = Progress.data && Progress.data.examQueue;
+  if (!q || !q.length || examFlushing || Sync.disabled || !Sync.online) return;
+  examFlushing = true;
+  try {
+    while (q.length) {
+      let r;
+      try { r = await sfetch('api/exam/result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q[0]) }); } catch (e) { break; }
+      if (r.status >= 500 || r.status === 401) break; // server trouble or class code: try again later
+      q.shift(); // received, or refused for good (exam over)
+      Progress.persist();
+    }
+  } finally { examFlushing = false; }
 }
 function updateExamBanner() {
   const b = $('examBanner');
@@ -229,6 +251,7 @@ function finishExam() {
   if (App.status === 'evaluating') App.cancelEval = true;
   storeWorkspace();
   CR.examOver = true;
+  flushExamResults();
   Progress.log('exam-end', null, App.exam.id);
   Progress.persist();
   Sync.push(liveState(), true);
@@ -271,5 +294,6 @@ function setupClassroom() {
   $('btnHelpMe').onclick = toggleHelp;
   $('closedExit').onclick = () => { $('closedOverlay').hidden = true; exitSession(); };
   setInterval(() => { if (App.exam) updateExamBanner(); }, 1000);
+  setInterval(flushExamResults, 4000);
   renderHelpButton();
 }
