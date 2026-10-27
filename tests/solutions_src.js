@@ -39,6 +39,9 @@ const QUARTER = CM(Math.PI * 12 / 4);
 const turnRight = () => [b('ev3_move_dir_for', { DIR: 'right', UNIT: 'degrees' }, { AMOUNT: n(QUARTER) })];
 const turnLeft = () => [b('ev3_move_dir_for', { DIR: 'left', UNIT: 'degrees' }, { AMOUNT: n(QUARTER) })];
 const distWait = (cm) => b('ev3_distance_wait', { PORT: '4', OP: '<', UNIT: 'cm' }, { VALUE: n(cm) });
+const setVar0 = (id) => b('variables_set', { VAR: { id } }, { VALUE: tx(0) });
+const dist = () => b('ev3_distance', { PORT: '4', UNIT: 'cm' });
+const turnBy = (dir, deg) => b('ev3_move_dir_for', { DIR: dir, UNIT: 'degrees' }, { AMOUNT: n(deg) });
 const reflectErr = (port) => op('ev3_op_sub', v(b('ev3_reflect', { PORT: port })), n(52));
 
 const SOLUTIONS = {
@@ -70,6 +73,45 @@ const SOLUTIONS = {
     ]) }),
     b('ev3_wait', {}, { SECS: n(0.3) }), stopMove(), write(varGet('v_lines'))])),
   'detect-color': prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), b('ev3_wait', {}, { SECS: n(0.3) }), stopMove(), write(b('ev3_color', { PORT: '3' }))]),
+  'card-lines': withVars(vars('number', 'count'), blocks([start(), setVar0('v_count'), startDir('forward'), waitTrue(not(colorIs('white'))), b('ev3_wait', {}, { SECS: n(0.1) }),
+    ...[['red', 2], ['green', 3], ['blue', 4], ['yellow', 5]].map(([c, k]) => b('ev3_if', {}, { COND: v(colorIs(c)), DO: body([b('variables_set', { VAR: { id: 'v_number' } }, { VALUE: tx(k) })]) })),
+    b('ev3_repeat_until', {}, { COND: v(op('ev3_op_eq', v(varGet('v_count')), v(varGet('v_number')))), DO: body([
+      b('ev3_color_wait', { PORT: '3', COLOR: 'black' }), b('math_change', { VAR: { id: 'v_count' } }, { DELTA: n(1) }),
+      b('ev3_if', {}, { COND: v(not(op('ev3_op_eq', v(varGet('v_count')), v(varGet('v_number'))))), DO: body([b('ev3_color_wait', { PORT: '3', COLOR: 'white' })]) }),
+    ]) }), stopMove()])),
+  'color-memory': withVars(listVars('colors'), blocks([start(), startDir('forward'),
+    b('ev3_repeat_until', {}, { COND: v(colorIs('black')), DO: body([b('ev3_if', {}, { COND: v(not(colorIs('white'))), DO: body([
+      b('ev3_wait', {}, { SECS: n(0.08) }),
+      b('ev3_list_add', { LIST: { id: 'l_colors' } }, { ITEM: v(b('ev3_color', { PORT: '3' })) }),
+      waitTrue(b('ev3_op_or', {}, { A: v(colorIs('white')), B: v(colorIs('black')) })),
+    ]) })]) }), stopMove(), write(b('ev3_list', { LIST: { id: 'l_colors' } }))])),
+  'open-gate': withVars(vars('middle', 'left', 'right'), blocks([start(),
+    b('variables_set', { VAR: { id: 'v_middle' } }, { VALUE: v(dist()) }), turnBy('left', 80),
+    b('variables_set', { VAR: { id: 'v_left' } }, { VALUE: v(dist()) }), turnBy('right', 160),
+    b('variables_set', { VAR: { id: 'v_right' } }, { VALUE: v(dist()) }),
+    b('ev3_if_else', {}, { COND: v(b('ev3_op_and', {}, { A: v(op('ev3_op_gt', v(varGet('v_middle')), v(varGet('v_left')))), B: v(op('ev3_op_gt', v(varGet('v_middle')), v(varGet('v_right')))) })),
+      DO: body([turnBy('left', 80)]),
+      ELSE: body([b('ev3_if', {}, { COND: v(op('ev3_op_gt', v(varGet('v_left')), v(varGet('v_right')))), DO: body([turnBy('left', 160)]) })]) }),
+    startDir('forward'), distWait(15), stopMove()])),
+  'line-to-wall': withVars(vars('error'), blocks([start(), b('ev3_repeat_until', {}, { COND: v(b('ev3_distance_cmp', { PORT: '4', OP: '<', UNIT: 'cm' }, { VALUE: n(10) })), DO: body([
+    b('variables_set', { VAR: { id: 'v_error' } }, { VALUE: v(reflectErr('3')) }),
+    b('ev3_move_tank_start', {}, {
+      LEFT: v(op('ev3_op_add', n(30), v(op('ev3_op_mul', n(0.6), v(varGet('v_error')))))),
+      RIGHT: v(op('ev3_op_sub', n(30), v(op('ev3_op_mul', n(0.6), v(varGet('v_error')))))),
+    }),
+  ]) }), stopMove()])),
+  'sensor-maze': prog(
+    defProc('turn left', [], turnLeft(), 0),
+    defProc('turn right', [], turnRight(), 300),
+    [start(), b('ev3_repeat_until', {}, { COND: v(colorIs('green')), DO: body([
+      startDir('forward'),
+      waitTrue(b('ev3_op_or', {}, { A: v(b('ev3_distance_cmp', { PORT: '4', OP: '<', UNIT: 'cm' }, { VALUE: n(9) })), B: v(colorIs('green')) })),
+      stopMove(),
+      b('ev3_if', {}, { COND: v(not(colorIs('green'))), DO: body([
+        callProc('turn left'),
+        b('ev3_if', {}, { COND: v(b('ev3_distance_cmp', { PORT: '4', OP: '<', UNIT: 'cm' }, { VALUE: n(20) })), DO: body([callProc('turn right'), callProc('turn right')]) }),
+      ]) }),
+    ]) })]),
   maze: withVars(vars('cm'), blocks(
     defProc('right', [], turnRight(), 0),
     defProc('left', [], turnLeft(), 300),

@@ -7,6 +7,7 @@ const PAL = {
 };
 
 function drawGrid(ctx, w, h) {
+  if (MAT_SENSING) return;
   ctx.strokeStyle = '#e4ecf3';
   ctx.lineWidth = 0.25;
   for (let x = 10; x < w; x += 10) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
@@ -118,9 +119,13 @@ const CATEGORIES = [
   { id: 'distance', icon: '📏', label: 'Distance sensor' },
   { id: 'color', icon: '🎨', label: 'Color sensor' },
   { id: 'combined', icon: '🧠', label: 'Combined (advanced)' },
+  { id: 'expert', icon: '🏆', label: 'Expert' },
 ];
 const categoryOf = (ch) => CATEGORIES.find((c) => c.id === (ch && ch.cat)) || CATEGORIES[0];
 
+// The basic challenges (Motion … Color) have one fixed layout: Run and Check give the same result, and "needs" makes
+// the program really use the sensor of the challenge. The advanced ones (Combined, Expert) change their layout at
+// each Run, and their check has several trials.
 // checkSeeds: the official trials, chosen so that the layouts really differ (low / middle / high positions,
 // different colors and numbers of lines): a program tuned by hand to the check cannot pass.
 const CHALLENGES = [
@@ -192,13 +197,15 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'touch', id: 'touch-return', checkSeeds: [101, 10, 315], hints: ["Drive until the touch sensor is pressed: \"wait until pressed\".", "To come back the same distance, reset the motor position at the start and read \"B relative position\" when you touch the wall. Or simply drive back with a timer."], title: '4. Touch and come back', level: 2, timeLimit: 40, trials: 3, noise: 0.02,
+    cat: 'touch', id: 'touch-return', needs: 'touch', title: '4. Touch and come back', level: 2, timeLimit: 40, trials: 1, noise: 0.02,
+    hints: ['"start moving forward", then "wait until pressed" (touch sensor, port 1), then "stop moving".',
+      'Then drive back to the start zone: the wall is about 70 cm away (one square of the grid = 10 cm) and one wheel rotation moves about 17.6 cm. Bonus: use the motor position to come back exactly the same distance.'],
     skills: 'Touch sensor, waiting',
-    description: 'Drive until the <b>touch sensor hits the wall</b>, then <b>come back into the blue start zone</b>. The wall moves in each trial.',
-    setup(rng) {
-      const wx = Math.round(80 + rng() * 110);
+    description: 'Drive until the <b>touch sensor touches the wall</b> and stop, then <b>come back into the blue start zone</b>.',
+    setup() {
+      const wx = 110;
       return {
-        mat: { w: 230, h: 80, draw(ctx) { drawGrid(ctx, 230, 80); }, obstacles: [wall(wx, 0, 6, 80)] },
+        mat: { w: 160, h: 80, draw(ctx) { drawGrid(ctx, 160, 80); }, obstacles: [wall(wx, 0, 6, 80)] },
         start: { x: 30, y: 40, th: 0 }, data: { wx, zone: { x: 10, y: 15, w: 35, h: 50 } },
       };
     },
@@ -211,18 +218,18 @@ const CHALLENGES = [
       const { x, y } = ctx.sim.robot;
       ctx.state.touched = ctx.state.touched && !ctx.state.crashed;
       return [
-        crit(ctx.state.crashed ? 'The touch sensor touched the wall (✖ the robot kept pushing the wall: stop when the touch sensor is pressed)' : 'The touch sensor touched the wall', ctx.state.touched, 40),
+        crit('The touch sensor touched the wall' + (ctx.state.crashed ? ' (✖ the robot kept pushing the wall: stop when the touch sensor is pressed)' : ''), ctx.state.touched, 40),
         crit('Back in the start zone', ctx.state.touched && inRect(x, y, ctx.data.zone), 40),
         crit('Program finished within the time limit', ctx.state.touched && ctx.programEnded, 20),
       ];
     },
   },
   {
-    cat: 'distance', id: 'stop-wall', checkSeeds: [176, 10, 4], hints: ["The wall moves in every trial: you cannot use a fixed distance. Use the ultrasonic sensor (port 4 by default).", "Start moving, then \"wait until distance is less than … cm\", then \"stop moving\"."], title: '5. Stop before the wall', level: 2, timeLimit: 25, trials: 3, noise: 0.02,
+    cat: 'distance', id: 'stop-wall', needs: 'distance', hints: ["Use the ultrasonic sensor (port 4 by default): it measures the distance to the wall in front of the robot.", "Start moving, then \"wait until distance is less than … cm\", then \"stop moving\"."], title: '5. Stop before the wall', level: 2, timeLimit: 25, trials: 1, noise: 0.02,
     skills: 'Ultrasonic sensor',
-    description: 'The wall is placed at a <b>different distance in each trial</b>. Drive forward and stop <b>between 3 and 12 cm</b> from the wall without touching it. Use the ultrasonic sensor.',
-    setup(rng) {
-      const wx = Math.round(90 + rng() * 100);
+    description: 'Drive forward and stop <b>between 3 and 12 cm</b> from the wall without touching it. Use the <b>ultrasonic sensor</b>.',
+    setup() {
+      const wx = 140;
       return { mat: { w: 230, h: 80, draw(ctx) { drawGrid(ctx, 230, 80); }, obstacles: [wall(wx, 0, 6, 80)] }, start: { x: 25, y: 40, th: 0 }, data: { wx } };
     },
     overlay(c, d) { zoneOverlay({ x: d.wx - 12, y: 0, w: 9, h: 80 }, '#00a651')(c); },
@@ -237,12 +244,12 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'distance', id: 'corridor', checkSeeds: [153, 1191, 349], title: '6. Turn at the wall', level: 3, timeLimit: 40, trials: 3, noise: 0.01,
-    hints: ['The same idea twice: drive until a wall is close, then do something. The walls move in each trial: measuring is not enough.', '"start moving", "wait until distance < 15 cm", "stop moving", turn left 90°, then "start moving", "wait until distance < 10 cm", "stop moving".'],
+    cat: 'distance', id: 'corridor', needs: 'distance', title: '6. Turn at the wall', level: 3, timeLimit: 40, trials: 1, noise: 0.01,
+    hints: ['The same idea twice: drive until a wall is close (ultrasonic sensor), then do something.', '"start moving", "wait until distance < 15 cm", "stop moving", turn left 90° (about 193 motor degrees), then "start moving", "wait until distance < 10 cm", "stop moving".'],
     skills: 'Ultrasonic sensor, turns',
-    description: 'Drive until you are close to the <b>first wall</b>, turn <b>left</b>, then stop <b>4 to 15 cm</b> from the <b>second wall</b>. Both walls move in each trial.',
-    setup(rng) {
-      const wx = Math.round(120 + rng() * 60), wy = Math.round(15 + rng() * 40);
+    description: 'Drive until you are close to the <b>first wall</b>, turn <b>left</b>, then stop <b>4 to 15 cm</b> from the <b>second wall</b>. Use the <b>ultrasonic sensor</b>.',
+    setup() {
+      const wx = 150, wy = 30;
       return { mat: { w: 220, h: 160, draw(ctx) { drawGrid(ctx, 220, 160); }, obstacles: [wall(wx, 0, 6, 160), wall(0, wy, wx, 6)] }, start: { x: 25, y: 130, th: 0 }, data: { wx, wy } };
     },
     overlay(c, d) { zoneOverlay({ x: d.wx - 45, y: d.wy + 10, w: 45, h: 11 }, '#00a651')(c); },
@@ -257,11 +264,11 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'stop-line', checkSeeds: [23, 10, 315], hints: ["Use the color sensor (port 3 by default), it looks at the floor.", "\"start moving\", then \"wait until color is black\", then \"stop moving\"."], title: '7. Stop on the line', level: 2, timeLimit: 25, trials: 3, noise: 0.02,
+    cat: 'color', id: 'stop-line', needs: 'color', hints: ["Use the color sensor (port 3 by default), it looks at the floor.", "\"start moving\", then \"wait until color is black\", then \"stop moving\"."], title: '7. Stop on the line', level: 2, timeLimit: 25, trials: 1, noise: 0.02,
     skills: 'Color sensor',
-    description: 'A black line is placed at a <b>different distance in each trial</b>. Stop with your <b>color sensor right above the line</b>.',
-    setup(rng) {
-      const lx = Math.round(60 + rng() * 110);
+    description: 'Drive forward and stop with your <b>color sensor right above the black line</b>. Use the <b>color sensor</b>.',
+    setup() {
+      const lx = 115;
       return { mat: { w: 230, h: 80, draw(ctx) { drawGrid(ctx, 230, 80); ctx.fillStyle = PAL.black; ctx.fillRect(lx, 0, 3, 80); } }, start: { x: 25, y: 40, th: 0 }, data: { lx } };
     },
     evaluate(ctx) {
@@ -273,13 +280,11 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'detect-color', checkSeeds: [555, 153, 41], hints: ["Drive until the color sensor no longer sees white, then stop on the colored zone.", "Use the \"3 color\" reporter inside \"write … at line 1\" to show the color name."], title: '8. Detect the color', level: 3, timeLimit: 25, trials: 3, noise: 0.02,
+    cat: 'color', id: 'detect-color', needs: 'color', hints: ["Drive until the color sensor no longer sees white, then stop on the colored zone.", "Use the \"3 color\" reporter inside \"write … at line 1\" to show the color name."], title: '8. Detect the color', level: 3, timeLimit: 25, trials: 1, noise: 0.02,
     skills: 'Color sensor, conditions, display',
-    description: 'Drive to the <b>colored zone</b> (its color changes in each trial), stop on it and <b>write the name of the color</b> on the display (red, green, blue or yellow).',
-    setup(rng) {
-      const colors = ['red', 'green', 'blue', 'yellow'];
-      const color = colors[Math.floor(rng() * 4)];
-      const px = Math.round(70 + rng() * 40);
+    description: 'Drive to the <b>colored zone</b>, stop on it and <b>write the name of its color</b> on the display, as measured by the <b>color sensor</b>.',
+    setup() {
+      const color = 'blue', px = 90;
       return {
         mat: { w: 180, h: 60, draw(ctx) { drawGrid(ctx, 180, 60); ctx.fillStyle = PAL[color]; ctx.fillRect(px, 10, 30, 40); } },
         start: { x: 20, y: 30, th: 0 }, data: { color, px },
@@ -295,11 +300,11 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'line-follow', checkSeeds: [153, 4], hints: ["Follow one edge of the line: when the sensor sees dark, turn one way; when it sees white, turn the other way.", "Inside a \"forever\" loop: if reflected light < 50 then \"start moving at 10 40 % speed\" else \"start moving at 40 10 % speed\". Then tune the numbers!"], title: '9. Line following', level: 3, timeLimit: 60, trials: 2, noise: 0.02,
+    cat: 'color', id: 'line-follow', needs: 'color', hints: ["Follow one edge of the line: when the sensor sees dark, turn one way; when it sees white, turn the other way.", "Inside a \"forever\" loop: if reflected light < 50 then \"start moving at 10 40 % speed\" else \"start moving at 40 10 % speed\". Then tune the numbers!"], title: '9. Line following', level: 3, timeLimit: 60, trials: 1, noise: 0.02,
     skills: 'Color sensor, loops, conditions',
-    description: 'Do <b>one full lap</b> of the track following the black line (counter-clockwise), passing every checkpoint in order. The start moves along the line in each trial. Bonus if the lap takes less than 30 s.',
-    setup(rng) {
-      const sx = Math.round(75 + rng() * 60);
+    description: 'Do <b>one full lap</b> of the track following the black line (counter-clockwise), passing every checkpoint in order. Bonus if the lap takes less than 30 s.',
+    setup() {
+      const sx = 90;
       return { mat: SANDBOX_MATS[1], start: { x: sx, y: 115, th: 0 }, data: { sx, cps: [[160, 115], [200, 75], [160, 35], [60, 35], [20, 75], [60, 115]] } };
     },
     init(ctx) { ctx.state.next = 0; ctx.state.lapT = null; },
@@ -322,16 +327,11 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'count-lines', checkSeeds: [7, 4, 6], hints: ["Make a variable, set it to 0, and add 1 each time the color sensor sees black.", "After counting a line, wait until the sensor sees white again, otherwise you count the same line many times. Repeat until the color is red, then write the variable on the display."], title: '10. Count the lines', level: 4, timeLimit: 40, trials: 3, noise: 0.02,
+    cat: 'color', id: 'count-lines', needs: 'color', hints: ["Make a variable, set it to 0, and add 1 each time the color sensor sees black.", "After counting a line, wait until the sensor sees white again, otherwise you count the same line many times. Repeat until the color is red, then write the variable on the display."], title: '10. Count the lines', level: 4, timeLimit: 40, trials: 1, noise: 0.02,
     skills: 'Variables, color sensor, display',
-    description: 'Drive to the <b>red zone</b> counting the black lines you cross (their number changes in each trial), stop in the red zone, then <b>show the number of lines</b> on the brick display (only that number).',
-    setup(rng) {
-      const n = 2 + Math.floor(rng() * 5);
-      const xs = [];
-      while (xs.length < n) {
-        const x = 55 + Math.round(rng() * 150);
-        if (xs.every((o) => Math.abs(o - x) > 16)) xs.push(x);
-      }
+    description: 'Drive to the <b>red zone</b> counting the black lines you cross with the <b>color sensor</b>, stop in the red zone, then <b>show the number of lines</b> on the brick display (only that number, counted by your program).',
+    setup() {
+      const xs = [68, 97, 131, 158, 192], n = xs.length;
       return {
         mat: { w: 270, h: 70, draw(ctx) { drawGrid(ctx, 270, 70); xs.forEach((x) => { ctx.fillStyle = PAL.black; ctx.fillRect(x, 0, 2.5, 70); }); ctx.fillStyle = PAL.red; ctx.fillRect(225, 0, 45, 70); } },
         start: { x: 20, y: 35, th: 0 }, data: { n, zone: { x: 214, y: 0, w: 56, h: 70 } },
@@ -441,6 +441,195 @@ const CHALLENGES = [
         crit('Exit reached', !!t, 60),
         crit(`Collisions: ${c} (0: 20 pts, ≤ 2: 10 pts)`, !!t && c === 0, 20, t && c <= 2 ? 10 : 0),
         crit(t ? `Time: ${t.toFixed(1)} s (< 60 s: 20 pts, < 90 s: 10 pts)` : 'Time', !!t && t < 60, 20, t && t < 90 ? 10 : 0),
+      ];
+    },
+  },
+  // ---------- Expert: several sensors, variables, lists and decisions; the layout changes in each trial ----------
+  {
+    cat: 'expert', id: 'card-lines', checkSeeds: [7, 4, 12], title: '15. Read the card', level: 5, timeLimit: 40, trials: 3, noise: 0.01,
+    skills: 'Variables, conditions, counting',
+    hints: ['First read the card: drive until the color sensor no longer sees white, then keep the number that goes with its color in a variable (if … else …).',
+      'Then count the black lines (like in "Count the lines") and stop as soon as the counter reaches your number: "repeat until count = number".'],
+    description: 'A <b>colored card</b> tells you on which black line to stop: <b>red = 2, green = 3, blue = 4, yellow = 5</b>. Drive over the card, then stop with your color sensor <b>on that line</b>. The card and the lines change in each trial.',
+    setup(rng) {
+      const colors = ['red', 'green', 'blue', 'yellow'];
+      const color = colors[Math.floor(rng() * 4)];
+      const xs = [];
+      let x = 62;
+      for (let i = 0; i < 6; i++) { x += 14 + Math.round(rng() * 16); xs.push(x); }
+      return {
+        mat: {
+          w: 270, h: 80,
+          draw(ctx) {
+            drawGrid(ctx, 270, 80);
+            label(ctx, 'red = 2   ·   green = 3   ·   blue = 4   ·   yellow = 5', 150, 6, 3.6, '#555');
+            ctx.fillStyle = PAL[color]; ctx.fillRect(32, 24, 14, 32);
+            xs.forEach((lx) => { ctx.fillStyle = PAL.black; ctx.fillRect(lx, 14, 2.5, 66); });
+          },
+        },
+        start: { x: 20, y: 40, th: 0 }, data: { color, target: colors.indexOf(color) + 2, xs },
+      };
+    },
+    overlay(c, d) { zoneOverlay({ x: d.xs[d.target - 1] - 3, y: 14, w: 8.5, h: 66 }, '#00a651')(c); },
+    evaluate(ctx) {
+      const d = ctx.data, lx = d.xs[d.target - 1];
+      const ok = anyColorOverX(ctx, lx - 1, lx + 3.5);
+      return [
+        crit(`Stops on line ${d.target} (the card is ${d.color})`, ok, 60),
+        crit('The robot is not moving at the end', ok && isStopped(ctx), 20),
+        crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 20),
+      ];
+    },
+  },
+  {
+    cat: 'expert', id: 'color-memory', checkSeeds: [7, 2, 11], title: '16. Remember the colors', level: 5, timeLimit: 40, trials: 3, noise: 0.01,
+    skills: 'Lists, loops, color sensor, display',
+    hints: ['Make a list. Each time the color sensor arrives on a colored square, "add (color) to the list", then wait until it sees white again.',
+      'Repeat until the color is black (the end line), stop, then write the list on the display: the list reporter shows all its items separated by spaces.'],
+    description: 'Drive along the track over the <b>colored squares</b> (3 to 5 of them, they change in each trial), stop on the <b>black end line</b>, then <b>write all the colors in order</b> on the display, e.g. "green red blue".',
+    setup(rng) {
+      const colors = ['red', 'green', 'blue', 'yellow'];
+      const n = 3 + Math.floor(rng() * 3), seq = [], xs = [];
+      let x = 30;
+      for (let i = 0; i < n; i++) { x += 12 + Math.round(rng() * 10); xs.push(x); seq.push(colors[Math.floor(rng() * 4)]); x += 12; }
+      return {
+        mat: {
+          w: 270, h: 70,
+          draw(ctx) {
+            drawGrid(ctx, 270, 70);
+            xs.forEach((sx, i) => { ctx.fillStyle = PAL[seq[i]]; ctx.fillRect(sx, 20, 12, 30); });
+            ctx.fillStyle = PAL.black; ctx.fillRect(235, 0, 4, 70);
+          },
+        },
+        start: { x: 15, y: 35, th: 0 }, data: { seq, xs },
+      };
+    },
+    evaluate(ctx) {
+      // what the screen shows, top to bottom (each line or x/y text in its place)
+      const texts = ctx.brick.lcd.texts.slice().sort((a, b) => a.y - b.y || (a.x || 0) - (b.x || 0)).map((t) => t.text).join(' ').toLowerCase();
+      const shown = texts.match(/\b(red|green|blue|yellow|black|white|brown)\b/g) || [];
+      const want = ctx.data.seq;
+      const atEnd = anyColorSees(ctx, 'black') || anyColorOverX(ctx, 234, 240);
+      return [
+        crit(`The display shows the colors in order (${want.join(' ')})`, shown.join(' ') === want.join(' '), 60),
+        crit('Stops on the black end line', atEnd && isStopped(ctx), 25),
+        crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 15),
+      ];
+    },
+  },
+  {
+    cat: 'expert', id: 'open-gate', checkSeeds: [7, 2, 1], title: '17. Find the open gate', level: 5, timeLimit: 40, trials: 3, noise: 0.01,
+    skills: 'Ultrasonic sensor, variables, comparisons, turns',
+    hints: ['The opening is on the left, in the middle or on the right. From the start, the left and right openings are about 38° away: about 80 motor degrees of turn on the spot.',
+      'Measure the distance in the 3 directions and keep each one in a variable. Where it is open, the distance is the largest. Turn that way and drive until the distance is less than 15 cm.'],
+    description: 'A wall blocks the way with <b>one opening</b>: on the left, in the middle or on the right (it changes in each trial). Use the distance sensor to find it, drive through and reach the <b>green zone</b> without touching the wall.',
+    setup(rng) {
+      const gx = [40, 100, 160][Math.floor(rng() * 3)];
+      return {
+        mat: { w: 200, h: 180, draw(ctx) { drawGrid(ctx, 200, 180); ctx.fillStyle = '#e6f6ea'; ctx.fillRect(0, 0, 200, 66); label(ctx, 'GOAL', 100, 30, 6, '#1b7a3a'); },
+          obstacles: [wall(0, 70, gx - 18, 4), wall(gx + 18, 70, 200 - gx - 18, 4)] },
+        start: { x: 100, y: 150, th: -Math.PI / 2 }, data: { gx },
+      };
+    },
+    overlay(c) { zoneOverlay({ x: 0, y: 0, w: 200, h: 64 }, '#00a651')(c); },
+    evaluate(ctx) {
+      const through = ctx.sim.robot.y < 64;
+      return [
+        crit('Reaches the green zone, through the opening', through, 60),
+        crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 25),
+        crit('The robot is not moving at the end', through && isStopped(ctx), 15),
+      ];
+    },
+  },
+  {
+    cat: 'expert', id: 'line-to-wall', checkSeeds: [9, 10, 3], title: '18. Follow the line to the wall', level: 5, timeLimit: 60, trials: 3, noise: 0.02,
+    skills: 'Line following, ultrasonic sensor, loops',
+    hints: ['Line following (like challenge 9), but not forever: "repeat until distance < 10 cm", then "stop moving".',
+      'Inside the loop: speed + gain × (reflected light − 50) on one wheel, speed − gain × (…) on the other. Try speed 30 and gain 0.6, then tune.'],
+    description: 'Follow the <b>curved black line</b> (its shape changes in each trial) and stop <b>4 to 15 cm</b> before the wall at its end, without touching it.',
+    setup(rng) {
+      const c = (rng() < 0.5 ? -1 : 1) * (25 + Math.round(rng() * 30)), p2x = 120 + Math.round(rng() * 40);
+      const P = [[10, 80], [95, 80], [p2x, 80 + c], [240, 80 + c]];
+      const at = (t) => { const u = 1 - t; return [0, 1].map((k) => u * u * u * P[0][k] + 3 * u * u * t * P[1][k] + 3 * u * t * t * P[2][k] + t * t * t * P[3][k]); };
+      return {
+        mat: {
+          w: 260, h: 160,
+          draw(ctx) {
+            drawGrid(ctx, 260, 160);
+            ctx.beginPath(); ctx.moveTo(...P[0]); ctx.bezierCurveTo(...P[1], ...P[2], ...P[3]);
+            ctx.strokeStyle = PAL.black; ctx.lineWidth = 2.5; ctx.stroke();
+          },
+          obstacles: [wall(240, 0, 6, 160)],
+        },
+        start: { x: 14, y: 79, th: 0 }, data: { c, cps: [0.3, 0.55, 0.8].map(at) },
+      };
+    },
+    init(ctx) { ctx.state.cp = [false, false, false]; },
+    step(ctx) { const { x, y } = ctx.sim.robot; ctx.data.cps.forEach(([cx, cy], i) => { if (Math.hypot(x - cx, y - cy) < 10) ctx.state.cp[i] = true; }); },
+    overlay(c, d, s) { d.cps.forEach(([x, y], i) => ring(x, y, 10, '#ffab19', s && s.cp && s.cp[i])(c)); },
+    evaluate(ctx) {
+      const cp = ctx.state.cp, all = cp.every(Boolean), gap = frontGap(ctx);
+      return [
+        ...cp.map((ok, i) => crit(`Follows the line: checkpoint ${i + 1}`, ok, 10)),
+        crit(`Stops 4 to 15 cm from the wall (measured: ${gap.toFixed(1)} cm)`, all && gap >= 4 && gap <= 15, 40, all && gap > 15 && gap < 30 ? 15 : 0),
+        crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 15),
+        crit('The robot is not moving at the end', all && isStopped(ctx), 15),
+      ];
+    },
+  },
+  {
+    cat: 'expert', id: 'sensor-maze', checkSeeds: [3, 9, 13], title: '19. Sensor maze', level: 5, timeLimit: 120, trials: 3, noise: 0.01,
+    skills: 'Ultrasonic sensor, color sensor, decisions, My Blocks',
+    hints: ['The corridor turns left or right at each wall (it changes in each trial). Drive until the wall is close (distance < 9 cm: the robot is then in the middle of the square and can turn without touching), then turn left and look: if the distance is small, that side is closed, so turn around to the right.',
+      'Put it all in "repeat until color is green": the exit square is green. One quarter turn on the spot is about 193 motor degrees; a My Block "turn left" helps.'],
+    description: 'Get out of the <b>maze</b>: the corridor turns at each wall, <b>left or right</b>, and it changes in each trial. Decide with the distance sensor, and stop on the <b>green exit square</b>. Every collision costs points.',
+    setup(rng) {
+      const D = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // N E S W (cells of 40 cm)
+      let cells;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        cells = [[0, 0]];
+        let dir = 0, ok = true;
+        for (let run = 0; run < 4 && ok; run++) {
+          if (run) dir = (dir + (rng() < 0.5 ? 3 : 1)) % 4;
+          const len = 1 + Math.floor(rng() * 3);
+          for (let k = 0; k < len; k++) {
+            const [lx, ly] = cells[cells.length - 1], nx = lx + D[dir][0], ny = ly + D[dir][1];
+            // never next to an earlier part of the corridor (except the cell it comes from): a single corridor
+            if (cells.slice(0, -1).some(([cx, cy]) => Math.abs(cx - nx) + Math.abs(cy - ny) <= 1)) { ok = false; break; }
+            cells.push([nx, ny]);
+          }
+        }
+        if (ok) break;
+      }
+      const minX = Math.min(...cells.map((c) => c[0])), minY = Math.min(...cells.map((c) => c[1]));
+      const C = 40, M = 6;
+      const pos = cells.map(([cx, cy]) => [(cx - minX) * C + M, (cy - minY) * C + M]);
+      const w = (Math.max(...cells.map((c) => c[0])) - minX + 1) * C + 2 * M, h = (Math.max(...cells.map((c) => c[1])) - minY + 1) * C + 2 * M;
+      const key = (c) => c.join(',');
+      const obstacles = [];
+      cells.forEach((c, i) => {
+        const open = new Set([cells[i - 1], cells[i + 1]].filter(Boolean).map(key));
+        const [px, py] = pos[i];
+        D.forEach(([dx, dy], d) => {
+          if (open.has(key([c[0] + dx, c[1] + dy]))) return;
+          if (d === 0) obstacles.push(wall(px - 1.5, py - 1.5, C + 3, 3));
+          if (d === 2) obstacles.push(wall(px - 1.5, py + C - 1.5, C + 3, 3));
+          if (d === 3) obstacles.push(wall(px - 1.5, py - 1.5, 3, C + 3));
+          if (d === 1) obstacles.push(wall(px + C - 1.5, py - 1.5, 3, C + 3));
+        });
+      });
+      const [ex, ey] = pos[pos.length - 1], [sx, sy] = pos[0];
+      return {
+        mat: { w, h, draw(ctx) { drawGrid(ctx, w, h); ctx.fillStyle = PAL.green; ctx.fillRect(ex + 4, ey + 4, C - 8, C - 8); }, obstacles },
+        start: { x: sx + C / 2, y: sy + C / 2, th: -Math.PI / 2 }, data: { exit: { x: ex, y: ey, w: C, h: C }, turns: cells.length },
+      };
+    },
+    evaluate(ctx) {
+      const out = anyColorSees(ctx, 'green') || inRect(ctx.sim.robot.x, ctx.sim.robot.y, ctx.data.exit), c = ctx.sim.collisions;
+      return [
+        crit('Reaches the green exit square', out, 60),
+        crit(`Collisions: ${c} (0: 25 pts, ≤ 2: 10 pts)`, out && c === 0, 25, out && c <= 2 ? 10 : 0),
+        crit('The robot is not moving at the end', out && isStopped(ctx), 15),
       ];
     },
   },

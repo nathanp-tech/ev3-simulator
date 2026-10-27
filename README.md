@@ -11,7 +11,7 @@ A web app to program a LEGO® MINDSTORMS® EV3 robot with blocks, in the style o
    - Keep the window open and the computer awake during the lesson.
    - The link changes at each launch: always take it from the dashboard.
 2. **Students:** open the link, choose their **class** then their **name** in the class lists (`js/roster.js`, one line per class, editable) (or scan the QR code), then choose:
-   - **Guided challenges:** 14 challenges in 5 categories (🚗 Motion, 👆 Touch sensor, 📏 Distance sensor, 🎨 Color sensor, 🧠 Combined for the most advanced), step by step;
+   - **Guided challenges:** 19 challenges in 6 categories (🚗 Motion, 👆 Touch sensor, 📏 Distance sensor, 🎨 Color sensor, 🧠 Combined, 🏆 Expert for the most advanced), step by step;
    - **Free programming:** playground with 7 mats.
 3. **Next challenge:** when "Check my solution" reaches 80 % (`passScore` in `js/config.js`), the challenge is passed and the next one unlocks (**Next challenge →**). In the dashboard, **Unlock next** lets a stuck student move on.
 4. **Saving:** the work (all programs and progress) is **saved automatically on the class server** every few seconds ("☁️ Saved online" in the header).
@@ -151,6 +151,11 @@ The app can also run on Vercel, with a fixed address (no computer to keep on, no
 | 12 | 🧠 Combined | Line, then wall | color then ultrasonic |
 | 13 | 🧠 Combined | Bump three times | touch + color + loops |
 | 14 | 🧠 Combined | Maze | planning, My Blocks |
+| 15 | 🏆 Expert | Read the card | the card's color gives the line to stop on: variables, counting |
+| 16 | 🏆 Expert | Remember the colors | lists: show the colored squares in order |
+| 17 | 🏆 Expert | Find the open gate | ultrasonic in 3 directions, variables, comparisons |
+| 18 | 🏆 Expert | Follow the line to the wall | line following that ends with the ultrasonic sensor |
+| 19 | 🏆 Expert | Sensor maze | corridor turning left or right at random: decisions, My Blocks |
 
 No challenge needs the gyro sensor (turns are made with motor degrees). A challenge unlocks the next one in this order.
 
@@ -175,7 +180,7 @@ Two more pages, same way:
 - `tests/variants.html`: about 130 student-style solutions (different blocks, speeds, sensors, robot setups). Correct ones must pass the official check and stay robust on random practice layouts; the ones whose name starts with ✗ (hard-coded layouts, skipped tasks, ramming…) must fail. `?ch=<id>` tests one challenge.
 - `tests/engine.html`: the block engine (broadcast loops, disabled blocks, My Blocks inputs and names, commas in numbers, sound, special variable names).
 
-The official trials of a challenge use its `checkSeeds` (chosen so that the layouts really differ). A challenge with one fixed layout is practised with the same seed as its check, so Run and Check give the same score.
+Challenges 1–10 (Motion, Touch, Distance, Color) have **one fixed layout**: Run and Check give the same score, and the program must really use the sensor of the challenge (`needs`), otherwise it gets no points. The advanced challenges 11–19 (Combined, Expert; the Maze excepted) get a **new layout at each Run**, and their check runs several trials on their `checkSeeds` (chosen so that the layouts really differ).
 
 ## Structure
 

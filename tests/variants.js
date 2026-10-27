@@ -71,6 +71,16 @@ const V = {
     'drive until touch, back off': prog([start(), moveFor('forward', 5.97), moveFor('left', 190, 'degrees'), startDir('forward'), bumpWait(), stopMove(), moveFor('backward', 0.3)]),
   },
   'touch-return': {
+    'touch, stop, back 4 rotations': prog([start(), startDir('forward'), bumpWait(), stopMove(), moveFor('backward', 4)]),
+    'back 3.8 rotations right away (no stop)': prog([start(), startDir('forward'), bumpWait(), moveFor('backward', 3.8)]),
+    'back 1380 degrees': prog([start(), startDir('forward'), bumpWait(), stopMove(), moveFor('backward', 1380, 'degrees')]),
+    'back for 2.6 seconds': prog([start(), startDir('forward'), bumpWait(), stopMove(), moveFor('backward', 2.6, 'seconds')]),
+    'speed 30, back 4.5 rotations': prog([start(), speed(30), startDir('forward'), bumpWait(), stopMove(), moveFor('backward', 4.5)]),
+    '✗ touches the wall but does not come back': prog([start(), startDir('forward'), bumpWait(), stopMove()]),
+    '✗ comes back too little (1 rotation)': prog([start(), startDir('forward'), bumpWait(), stopMove(), moveFor('backward', 1)]),
+    '✗ drives a fixed distance without the touch sensor (stops short)': prog([start(), moveFor('forward', 3), moveFor('backward', 3)]),
+    '✗ exact distance without the touch sensor': prog([start(), moveFor('forward', 3.84), moveFor('backward', 3.84)]),
+    '✗ drives into the wall by distance, no touch block': prog([start(), moveFor('forward', 4), moveFor('backward', 4)]),
     'reference (motor B position)': SOLUTIONS['touch-return'],
     'motor C position, no reset': prog([start(), startDir('forward'), bumpWait(), stopMove(), b('ev3_move_dir_for', { DIR: 'backward', UNIT: 'degrees' }, { AMOUNT: v(motorPos('C')) })]),
     'timer: go back for the same time': withVars(vars('t'), blocks([start(), timerReset(), startDir('forward'), bumpWait(), setVar('v_t', v(timer())), startDir('backward'),
@@ -246,6 +256,79 @@ V.bounce['✗ many short rams'] = prog([start(), repeat(3, [repeat(18, [moveFor(
 V.bounce['✗ rams at an angle'] = prog([start(), moveFor('right', 20, 'degrees'), repeat(3, [moveFor('forward', 6, 'seconds'), startDir('backward'), colorWait('blue')]), stopMove()]);
 V.bounce['speed 60, coast, no stop in between'] = prog([start(), speed(60), coast(), repeat(3, [startDir('forward'), bumpWait(), startDir('backward'), colorWait('blue')]), stopMove()]);
 V.bounce['speed 100, stop between moves'] = prog([start(), speed(100), repeat(3, [startDir('forward'), bumpWait(), stopMove(), startDir('backward'), colorWait('blue'), stopMove()])]);
+for (const id of ['card-lines', 'color-memory', 'open-gate', 'line-to-wall', 'sensor-maze']) V[id] = { reference: SOLUTIONS[id] };
+// ---------- Expert challenges ----------
+const eq = (A, B) => op('ev3_op_eq', A, B);
+const readCard = (extra = []) => [startDir('forward'), waitTrue(not(colorIs('white'))), ...extra,
+  ...[['red', 2], ['green', 3], ['blue', 4], ['yellow', 5]].map(([c, k]) => ifThen(colorIs(c), [setVar('v_number', tx(k))]))];
+const countTo = (black, white) => repeatUntil(eq(v(varGet('v_count')), v(varGet('v_number'))), [waitTrue(black), changeVar('v_count'),
+  ifThen(not(eq(v(varGet('v_count')), v(varGet('v_number')))), [waitTrue(white)])]);
+Object.assign(V['card-lines'], {
+  'reflected light to count (after leaving the card)': withVars(vars('number', 'count'), blocks([start(), setVar('v_count', tx(0)), ...readCard([wait(0.1)]), colorWait('white'),
+    countTo(lt(v(reflect()), n(30)), gt(v(reflect()), n(70))), stopMove()])),
+  'speed 30, read the card at once': withVars(vars('number', 'count'), blocks([start(), speed(30), setVar('v_count', tx(0)), ...readCard(),
+    countTo(colorIs('black'), not(colorIs('black'))), stopMove()])),
+  'stop the robot on the card to read it': withVars(vars('number', 'count'), blocks([start(), setVar('v_count', tx(0)), ...readCard([moveFor('forward', 0.15), stopMove()]),
+    startDir('forward'), countTo(colorIs('black'), colorIs('white')), stopMove()])),
+  '✗ counts with reflected light from the start (a blue or green card is dark too)': withVars(vars('number', 'count'), blocks([start(), setVar('v_count', tx(0)), ...readCard([wait(0.1)]),
+    countTo(lt(v(reflect()), n(30)), gt(v(reflect()), n(70))), stopMove()])),
+  '✗ always the 3rd line': withVars(vars('number', 'count'), blocks([start(), setVar('v_count', tx(0)), setVar('v_number', tx(3)), startDir('forward'),
+    countTo(colorIs('black'), colorIs('white')), stopMove()])),
+  '✗ forgets to wait for white (counts one line many times)': withVars(vars('number', 'count'), blocks([start(), setVar('v_count', tx(0)), ...readCard([wait(0.1)]),
+    repeatUntil(eq(v(varGet('v_count')), v(varGet('v_number'))), [waitTrue(colorIs('black')), changeVar('v_count')]), stopMove()])),
+});
+const addColor = (list = 'l_c') => b('ev3_list_add', { LIST: { id: list } }, { ITEM: v(b('ev3_color', { PORT: '3' })) });
+const nextSquare = () => waitTrue(or(colorIs('white'), colorIs('black')));
+Object.assign(V['color-memory'], {
+  'one color per display line': withVars(vars('line').concat(listVars('c')), blocks([start(), setVar('v_line', tx(1)), startDir('forward'),
+    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.08), b('ev3_display_text_line', {}, { TEXT: v(b('ev3_color', { PORT: '3' })), LINE: v(varGet('v_line')) }), changeVar('v_line'), nextSquare()])]),
+    stopMove()])),
+  'join the names in a text variable': withVars(vars('txt'), blocks([start(), setVar('v_txt', tx('')), startDir('forward'),
+    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.08), setVar('v_txt', v(op('ev3_op_join', v(varGet('v_txt')), v(op('ev3_op_join', v(b('ev3_color', { PORT: '3' })), tx(' ')))))), nextSquare()])]),
+    stopMove(), write(varGet('v_txt'))])),
+  'speed 30': withVars(listVars('c'), blocks([start(), speed(30), startDir('forward'),
+    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.12), addColor(), nextSquare()])]), stopMove(), write(b('ev3_list', { LIST: { id: 'l_c' } }))])),
+  'speed 70': withVars(listVars('c'), blocks([start(), speed(70), startDir('forward'),
+    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.05), addColor(), nextSquare()])]), stopMove(), write(b('ev3_list', { LIST: { id: 'l_c' } }))])),
+  '✗ always "red green blue"': prog([start(), startDir('forward'), colorWait('black'), stopMove(), writeText('red green blue')]),
+  '✗ no wait for white (same square added many times)': withVars(listVars('c'), blocks([start(), startDir('forward'),
+    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [addColor()])]), stopMove(), write(b('ev3_list', { LIST: { id: 'l_c' } }))])),
+  '✗ also writes the black end line': withVars(listVars('c'), blocks([start(), startDir('forward'),
+    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.08), addColor(), nextSquare()])]), stopMove(), addColor(), write(b('ev3_list', { LIST: { id: 'l_c' } }))])),
+});
+Object.assign(V['open-gate'], {
+  'thresholds: middle, then left, else right': prog([start(), ifElse(distCmp('>', 100), [], [moveFor('left', 80, 'degrees'),
+    ifElse(distCmp('>', 110), [], [moveFor('right', 160, 'degrees')])]), startDir('forward'), distWait(15), stopMove()]),
+  'tank turns, speed 30': withVars(vars('m', 'l', 'r'), blocks([start(), speed(30), setVar('v_m', v(distance())), tankFor(80, 'degrees', -30, 30), setVar('v_l', v(distance())),
+    tankFor(160, 'degrees', 30, -30), setVar('v_r', v(distance())),
+    ifElse(b('ev3_op_and', {}, { A: v(gt(v(varGet('v_m')), v(varGet('v_l')))), B: v(gt(v(varGet('v_m')), v(varGet('v_r')))) }), [tankFor(80, 'degrees', -30, 30)],
+      [ifThen(gt(v(varGet('v_l')), v(varGet('v_r'))), [tankFor(160, 'degrees', -30, 30)])]),
+    startDir('forward'), distWait(15), stopMove()])),
+  '✗ always straight ahead': prog([start(), startDir('forward'), distWait(15), stopMove()]),
+  '✗ always the left opening': prog([start(), moveFor('left', 80, 'degrees'), startDir('forward'), distWait(15), stopMove()]),
+});
+Object.assign(V['line-to-wall'], {
+  'on/off: reflected < 50 → 15/40 else 40/15': prog([start(), repeatUntil(distCmp('<', 10), [ifElse(lt(v(reflect()), n(50)), [tankStart(15, 40)], [tankStart(40, 15)])]), stopMove()]),
+  'proportional, gain 0.4, speed 25, stop < 8': withVars(vars('e'), blocks([start(), repeatUntil(distCmp('<', 8), [setVar('v_e', v(reflectErr('3'))),
+    b('ev3_move_tank_start', {}, { LEFT: v(op('ev3_op_add', n(25), v(op('ev3_op_mul', n(0.4), v(varGet('v_e')))))), RIGHT: v(op('ev3_op_sub', n(25), v(op('ev3_op_mul', n(0.4), v(varGet('v_e')))))) })]), stopMove()])),
+  'event: when distance < 10 → stop program': withVars(vars('e'), blocks([start(), forever([setVar('v_e', v(reflectErr('3'))),
+    b('ev3_move_tank_start', {}, { LEFT: v(op('ev3_op_add', n(30), v(op('ev3_op_mul', n(0.6), v(varGet('v_e')))))), RIGHT: v(op('ev3_op_sub', n(30), v(op('ev3_op_mul', n(0.6), v(varGet('v_e')))))) })])],
+    [b('ev3_when_distance', { PORT: '4', OP: '<', UNIT: 'cm' }, { VALUE: n(10) }), stopMove(), b('ev3_stop', { WHAT: 'exit' })])),
+  '✗ straight to the wall (no line following)': prog([start(), startDir('forward'), distWait(10), stopMove()]),
+  '✗ follows the line forever (never stops)': prog([start(), forever([ifElse(lt(v(reflect()), n(50)), [tankStart(15, 40)], [tankStart(40, 15)])])]),
+});
+const mazeLoop = (first, second, extra = [], d = 9) => prog(defProc('L', [], turnLeft(), 0), defProc('R', [], turnRight(), 300), [start(), ...extra, repeatUntil(colorIs('green'), [
+  startDir('forward'), waitTrue(or(distCmp('<', d), colorIs('green'))), stopMove(),
+  ifThen(not(colorIs('green')), [callProc(first), ifThen(distCmp('<', 20), [callProc(second), callProc(second)])])])]);
+Object.assign(V['sensor-maze'], {
+  'look right first': mazeLoop('R', 'L'),
+  'speed 30': mazeLoop('L', 'R', [speed(30)]),
+  'speed 80': mazeLoop('L', 'R', [speed(80)]),
+  'stop at 8 cm, look again after turning around': mazeLoop('L', 'R', [], 8),
+  '✗ always turns left': prog(defProc('L', [], turnLeft(), 0), [start(), repeatUntil(colorIs('green'), [startDir('forward'), waitTrue(or(distCmp('<', 9), colorIs('green'))), stopMove(),
+    ifThen(not(colorIs('green')), [callProc('L')])])]),
+});
+
 
 const out = [];
 const say = (s) => { out.push(s); document.getElementById('out').textContent = out.join('\n'); };

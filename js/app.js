@@ -482,7 +482,7 @@ function selectChallenge(id, newSeed = true) {
   const fixed = (ch.trials || 1) === 1;
   if (fixed) App.practiceSeed = checkSeeds(ch)[0];
   else if (newSeed) App.practiceSeed = Math.floor(Math.random() * 1e9);
-  $('btnVariant').hidden = fixed;
+  $('btnVariant').hidden = true; // advanced challenges change their layout at each Run
   App.ctx = prepareChallenge(sim, brick, ch, App.practiceSeed, sim.config);
   $('practiceResult').innerHTML = '';
 }
@@ -600,6 +600,8 @@ function runProgram() {
     brick.reset();
     renderFllSetup();
   } else if (App.mode === 'challenge') {
+    // advanced challenges: a new layout at each Run (the check uses its own, fixed trials)
+    if ((App.challenge.trials || 1) > 1) App.practiceSeed = Math.floor(Math.random() * 1e9);
     App.ctx = prepareChallenge(sim, brick, App.challenge, App.practiceSeed, sim.config);
     $('practiceResult').innerHTML = '';
   } else {
@@ -609,6 +611,7 @@ function runProgram() {
   }
   brick.sound.muted = App.speed === 'max';
   rt = new Runtime(sim, brick, { onLog: log });
+  if (App.mode === 'challenge' && App.ctx) App.ctx.runtime = rt;
   try {
     rt.start(prog.code, { seed: App.mode === 'challenge' ? App.practiceSeed : Math.floor(Math.random() * 1e9), variables: prog.variables, lists: prog.lists });
   } catch (e) {
@@ -709,8 +712,8 @@ function onProgramEnd() {
 
 function criteriaHtml(criteria) {
   return '<ul class="criteria">' + criteria.map((c) => {
-    const cls = c.points === c.max ? 'ok' : c.points > 0 ? 'part' : 'ko';
-    return `<li class="${cls}"><span>${esc(c.label)}</span><span class="pts">${c.points} / ${c.max}</span></li>`;
+    const cls = c.note ? 'ko' : c.points === c.max ? 'ok' : c.points > 0 ? 'part' : 'ko';
+    return `<li class="${cls}"><span>${esc(c.label)}</span><span class="pts">${c.note ? '' : `${c.points} / ${c.max}`}</span></li>`;
   }).join('') + '</ul>';
 }
 

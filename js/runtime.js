@@ -45,6 +45,7 @@ class Runtime {
     for (const v of variables) this.V[v] = 0;
     for (const l of lists) this.L[l] = [];
     this.tid = 0;
+    this.read = {}; // sensors the program has read (a challenge can require one)
     this.timerStart = this.sim.t;
     this.rng = mulberry32(seed);
     this.move = { pair: ['B', 'C'], speed: 50, rotCm: 17.6 };
@@ -356,19 +357,20 @@ class Runtime {
       throw new Error(`No ${SENSOR_TYPES[type]} on port ${port} (${has}). Check the robot configuration in Port View.`);
     }
   }
-  touch(port) { this._sensor(port, 'touch'); return this.sim.touchPressed(port); }
-  color(port) { this._sensor(port, 'color'); return COLOR_NAMES[this.sim.colorKey(port)]; }
-  colorIs(port, c) { this._sensor(port, 'color'); return this.sim.colorKey(port) === c; }
-  reflect(port) { this._sensor(port, 'color'); return this.sim.reflect(port); }
+  touch(port) { this._sensor(port, 'touch'); this.read.touch = true; return this.sim.touchPressed(port); }
+  color(port) { this._sensor(port, 'color'); this.read.color = true; return COLOR_NAMES[this.sim.colorKey(port)]; }
+  colorIs(port, c) { this._sensor(port, 'color'); this.read.color = true; return this.sim.colorKey(port) === c; }
+  reflect(port) { this._sensor(port, 'color'); this.read.color = true; return this.sim.reflect(port); }
   ambient(port) { this._sensor(port, 'color'); return this.sim.ambient(); }
   calibrate(port, which) { this._sensor(port, 'color'); this.sim.calibrate(port, which); }
   resetCalibration(port) { this._sensor(port, 'color'); this.sim.resetCalibration(port); }
   distance(port, unit) {
     this._sensor(port, 'ultrasonic');
+    this.read.distance = true;
     const d = this.sim.ultrasonic(port);
     return unit === 'in' ? Math.round(d / 2.54 * 10) / 10 : d;
   }
-  proximity(port) { this._sensor(port, 'infrared'); return this.sim.irProximity(port); }
+  proximity(port) { this._sensor(port, 'infrared'); this.read.distance = true; return this.sim.irProximity(port); }
   beaconHeading(port, ch) { this._sensor(port, 'infrared'); return this.sim.beaconInfo(port, ch).heading; }
   beaconProximity(port, ch) { this._sensor(port, 'infrared'); return this.sim.beaconInfo(port, ch).proximity; }
   beaconActive(port, ch) { this._sensor(port, 'infrared'); return this.sim.beaconInfo(port, ch).active; }

@@ -109,6 +109,13 @@ async function main() {
     const ch = CHALLENGES.find((c) => c.id === 'color-route');
     const colors = checkSeeds(ch).map((sd) => ch.setup(mulberry32(sd)).data.color);
     check(new Set(colors).size === 2, `color code: both colors appear in the trials (${colors.join(', ')})`);
+    // basic challenges: one fixed layout; advanced ones (Combined, Expert): a layout that changes, several trials
+    const layout = (c, sd) => JSON.stringify(c.setup(mulberry32(sd)).data);
+    const basic = CHALLENGES.filter((c) => ['motion', 'touch', 'distance', 'color'].includes(c.cat));
+    check(basic.every((c) => (c.trials || 1) === 1 && layout(c, 1) === layout(c, 99) && layout(c, 1) === layout(c, 12345)), `basic challenges have a fixed layout: ${basic.map((c) => c.id).join(', ')}`);
+    const adv = CHALLENGES.filter((c) => ['combined', 'expert'].includes(c.cat) && c.id !== 'maze');
+    check(adv.every((c) => c.trials >= 3 && new Set(Array.from({ length: 20 }, (_, i) => layout(c, i + 1))).size > 1 && new Set(checkSeeds(c).map((sd) => layout(c, sd))).size >= 2),
+      `advanced challenges change their layout (different check trials): ${adv.map((c) => `${c.id} ${new Set(checkSeeds(c).map((sd) => layout(c, sd))).size}/${c.trials}`).join(', ')}`);
   }
   // The answer key published for the teacher (api/_solutions.json) is the same as these solutions
   {

@@ -4,7 +4,8 @@
 const EVAL_SEEDS = [1103, 2207, 3301, 4409, 5503];
 // Official trials of a challenge: its own seeds (chosen so that the layouts really differ), else the common ones.
 const checkSeeds = (ch) => (ch.checkSeeds || EVAL_SEEDS).slice(0, ch.trials || 1);
-const SETTLE_STEPS = 80; // 0.4 s of coasting after the program ends
+const SETTLE_STEPS = 80;
+const SENSOR_NEEDS = { touch: 'touch sensor', color: 'color sensor', distance: 'ultrasonic sensor' }; // 0.4 s of coasting after the program ends
 
 function prepareChallenge(sim, brick, ch, seed, config) {
   const rng = mulberry32(seed);
@@ -41,6 +42,12 @@ function finishChallenge(ctx, endReason) {
   }
   ctx.screen = ctx.brick.lcd.screenText();
   const criteria = ctx.ch.evaluate(ctx);
+  // A fixed layout could be solved by driving a measured distance: the program must read the sensor of the challenge.
+  const need = ctx.ch.needs;
+  if (need && !(ctx.runtime && ctx.runtime.read && ctx.runtime.read[need])) {
+    criteria.forEach((c) => { c.points = 0; c.ok = false; });
+    criteria.unshift({ label: `✖ Your program must use the ${SENSOR_NEEDS[need]} (no points without it)`, max: 0, points: 0, ok: false, note: true });
+  }
   const max = criteria.reduce((a, c) => a + c.max, 0);
   const pts = criteria.reduce((a, c) => a + c.points, 0);
   return { seed: ctx.seed, criteria, score: Math.round(pts / max * 100), endReason, simTime: Math.round(ctx.sim.t * 100) / 100 };

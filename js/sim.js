@@ -7,6 +7,7 @@
 const DEG = Math.PI / 180;
 const DT = 0.005; // simulation step: 200 Hz
 const MAT_SCALE = 4; // px per cm in the sampled mat
+let MAT_SENSING = false; // true while the mat is drawn for the color sensor (drawGrid draws nothing then)
 
 const ROBOT = { wheelD: 5.6, track: 12, body: { x0: -6, x1: 11, y0: -7.5, y1: 7.5 } };
 
@@ -263,18 +264,25 @@ class Sim {
 
   loadMat(mat) {
     this.mat = mat;
-    const c = document.createElement('canvas');
-    c.width = Math.round(mat.w * MAT_SCALE);
-    c.height = Math.round(mat.h * MAT_SCALE);
-    const ctx = c.getContext('2d', { willReadFrequently: true });
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, c.width, c.height);
-    ctx.save();
-    ctx.scale(MAT_SCALE, MAT_SCALE);
-    mat.draw(ctx);
-    ctx.restore();
-    this.matCanvas = c;
-    this.matPixels = ctx.getImageData(0, 0, c.width, c.height).data;
+    const paint = (sensing) => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(mat.w * MAT_SCALE);
+      c.height = Math.round(mat.h * MAT_SCALE);
+      const ctx = c.getContext('2d', { willReadFrequently: sensing });
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.save();
+      ctx.scale(MAT_SCALE, MAT_SCALE);
+      MAT_SENSING = sensing;
+      try { mat.draw(ctx); } finally { MAT_SENSING = false; }
+      ctx.restore();
+      return c;
+    };
+    this.matCanvas = paint(false); // what is shown (with the 10 cm grid)
+    // what the color sensor sees: the same mat without the grid lines, which are only a drawing aid
+    // (a grid line next to a black line made the color flicker black / white / black at its edge)
+    const s = paint(true);
+    this.matPixels = s.getContext('2d').getImageData(0, 0, s.width, s.height).data;
     this.obstacles = (mat.obstacles || []).map((o) => ({ ...o, poly: o.poly.map((p) => p.slice()) }));
     this.beacon = mat.beacon ? { ...mat.beacon } : null;
     this.hook = null;
