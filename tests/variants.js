@@ -126,18 +126,15 @@ const V = {
     'event: when color is black → stop': prog([start(), startDir('forward'), wait(15)], [b('ev3_when_color', { PORT: '3', COLOR: 'black' }), stopMove(), b('ev3_stop', { WHAT: 'exit' })]),
   },
   'detect-color': {
-    'reference': SOLUTIONS['detect-color'],
-    'stop right away (no extra wait)': prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), stopMove(), write(b('ev3_color', { PORT: '3' }))]),
-    'reflected < 85, then write color': prog([start(), startDir('forward'), reflectWait('<', 85), wait(0.2), stopMove(), write(b('ev3_color', { PORT: '3' }))]),
-    'if chain writing the names': prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), moveFor('forward', 0.2), stopMove(),
-      ifThen(colorIs('red'), [writeText('red')]), ifThen(colorIs('green'), [writeText('green')]), ifThen(colorIs('blue'), [writeText('blue')]), ifThen(colorIs('yellow'), [writeText('yellow')])]),
-    'wait until red or green or blue or yellow': prog([start(), startDir('forward'), waitTrue(or(or(colorIs('red'), colorIs('green')), or(colorIs('blue'), colorIs('yellow')))), wait(0.2), stopMove(),
-      b('ev3_display_text_xy', {}, { TEXT: v(b('ev3_color', { PORT: '3' })), X: n(10), Y: n(50) })]),
-    'speed 100, repeat until not white': prog([start(), speed(100), repeatUntil(not(colorIs('white')), [startDir('forward')]), stopMove(), write(b('ev3_color', { PORT: '3' }))]),
-    'write "Color: " + color': prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), wait(0.3), stopMove(), write(op('ev3_op_join', tx('Color: '), v(b('ev3_color', { PORT: '3' }))))]),
-    'speed 20': prog([start(), speed(20), startDir('forward'), waitTrue(not(colorIs('white'))), stopMove(), write(b('ev3_color', { PORT: '3' }))]),
-    '✗ reflected < 90, stop at the very edge, if chain': prog([start(), startDir('forward'), reflectWait('<', 90), stopMove(),
-      ifThen(colorIs('red'), [writeText('red')]), ifThen(colorIs('green'), [writeText('green')]), ifThen(colorIs('blue'), [writeText('blue')]), ifThen(colorIs('yellow'), [writeText('yellow')])]),
+    'reference (wait 0.2 s on blue)': SOLUTIONS['detect-color'],
+    'wait until blue, stop at once': prog([start(), startDir('forward'), colorWait('blue'), stopMove()]),
+    'repeat until blue': prog([start(), repeatUntil(colorIs('blue'), [startDir('forward')]), stopMove()]),
+    'speed 100': prog([start(), speed(100), startDir('forward'), colorWait('blue'), stopMove()]),
+    'speed 20': prog([start(), speed(20), startDir('forward'), colorWait('blue'), stopMove()]),
+    'event: when color is blue → stop program': prog([start(), startDir('forward'), wait(15)], [b('ev3_when_color', { PORT: '3', COLOR: 'blue' }), stopMove(), b('ev3_stop', { WHAT: 'exit' })]),
+    '✗ stops on the first color (red)': prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), stopMove()]),
+    '✗ stops on green': prog([start(), startDir('forward'), colorWait('green'), stopMove()]),
+    '✗ no sensor: fixed distance onto the blue zone': prog([start(), moveFor('forward', 6.4)]),
   },
   'line-follow': {
     'reference (proportional)': SOLUTIONS['line-follow'],
@@ -150,20 +147,18 @@ const V = {
     'repeat until timer > 40 (not forever)': prog([start(), timerReset(), repeatUntil(gt(v(timer()), n(40)), [ifElse(lt(v(reflect()), n(50)), [tankStart(10, 40)], [tankStart(40, 10)])]), stopMove()]),
   },
   'count-lines': {
-    'reference': SOLUTIONS['count-lines'],
-    'wait until white after each line': withVars(vars('n'), blocks([start(), setVar('v_n', tx(0)), startDir('forward'),
-      repeatUntil(colorIs('red'), [ifThen(colorIs('black'), [changeVar('v_n'), colorWait('white')])]), stopMove(), write(varGet('v_n'))])),
-    'event hat: when color is black → +1': withVars(vars('n'), blocks([start(), setVar('v_n', tx(0)), startDir('forward'), colorWait('red'), wait(0.2), stopMove(), write(varGet('v_n'))],
+    'reference (variable)': SOLUTIONS['count-lines'],
+    'without a variable: 3 × black / white, then black': prog([start(), startDir('forward'), repeat(3, [colorWait('black'), colorWait('white')]), colorWait('black'), stopMove()]),
+    'event hat: when color is black → +1': withVars(vars('n'), blocks([start(), setVar('v_n', tx(0)), startDir('forward'), waitTrue(op('ev3_op_eq', v(varGet('v_n')), n(4))), stopMove()],
       [b('ev3_when_color', { PORT: '3', COLOR: 'black' }), changeVar('v_n')])),
     'reflected light < 30 / > 60': withVars(vars('n'), blocks([start(), setVar('v_n', tx(0)), startDir('forward'),
-      repeatUntil(colorIs('red'), [ifThen(lt(v(reflect()), n(30)), [changeVar('v_n'), waitTrue(gt(v(reflect()), n(60)))])]), stopMove(), write(varGet('v_n'))])),
+      repeatUntil(op('ev3_op_eq', v(varGet('v_n')), n(4)), [waitTrue(lt(v(reflect()), n(30))), changeVar('v_n'), ifThen(not(op('ev3_op_eq', v(varGet('v_n')), n(4))), [waitTrue(gt(v(reflect()), n(60)))])]), stopMove()])),
     'speed 100': withVars(vars('n'), blocks([start(), speed(100), setVar('v_n', tx(0)), startDir('forward'),
-      repeatUntil(colorIs('red'), [ifThen(colorIs('black'), [changeVar('v_n'), waitTrue(not(colorIs('black')))])]), stopMove(), write(varGet('v_n'))])),
-    'speed 25, stop immediately': withVars(vars('n'), blocks([start(), speed(25), setVar('v_n', tx(0)), startDir('forward'),
-      repeatUntil(colorIs('red'), [ifThen(colorIs('black'), [changeVar('v_n'), waitTrue(not(colorIs('black')))])]), stopMove(), write(varGet('v_n'))])),
-    'list of lines (length)': withVars(listVars('seen'), blocks([start(), startDir('forward'),
-      repeatUntil(colorIs('red'), [ifThen(colorIs('black'), [b('ev3_list_add', { LIST: { id: 'l_seen' } }, { ITEM: tx('x') }), colorWait('white')])]), stopMove(),
-      write(b('ev3_list_length', { LIST: { id: 'l_seen' } }))])),
+      repeatUntil(op('ev3_op_eq', v(varGet('v_n')), n(4)), [colorWait('black'), changeVar('v_n'), ifThen(not(op('ev3_op_eq', v(varGet('v_n')), n(4))), [colorWait('white')])]), stopMove()])),
+    '✗ forgets to wait for white (stops on the 1st line)': withVars(vars('n'), blocks([start(), setVar('v_n', tx(0)), startDir('forward'),
+      repeatUntil(op('ev3_op_eq', v(varGet('v_n')), n(4)), [colorWait('black'), changeVar('v_n')]), stopMove()])),
+    '✗ stops on the 3rd line': prog([start(), startDir('forward'), repeat(2, [colorWait('black'), colorWait('white')]), colorWait('black'), stopMove()]),
+    '✗ no sensor: fixed distance to the 4th line': prog([start(), moveFor('forward', 8.3)]),
   },
   'color-route': {
     'reference': SOLUTIONS['color-route'],
@@ -225,11 +220,6 @@ if (new URLSearchParams(location.search).get('sweep')) {
 // Wrong solutions found by testing (hard-coded layouts, skipped tasks, ramming): they must never pass.
 const BACK_COLOR = { sensors: { ...DEFAULT_CONFIG.sensors, 3: { type: 'color', mount: 'back' } }, motors: DEFAULT_CONFIG.motors };
 const BACK_TOUCH = { sensors: { ...DEFAULT_CONFIG.sensors, 1: { type: 'touch', mount: 'back' } }, motors: DEFAULT_CONFIG.motors };
-Object.assign(V['count-lines'], Object.fromEntries([2, 4, 5, 6].map((k) => [`✗ no sensor: forward 220 cm, write ${k}`, prog([start(), moveFor('forward', 12.5), writeText(k)])])));
-Object.assign(V['count-lines'], { '✗ drive until red, write 4': prog([start(), startDir('forward'), colorWait('red'), stopMove(), writeText(4)]) });
-Object.assign(V['detect-color'], Object.fromEntries(['red', 'green', 'blue', 'yellow'].map((c) => [`✗ no sensor: forward 70 cm, write ${c}`, prog([start(), moveFor('forward', 4), writeText(c)])])));
-V['detect-color']['write "Measured: " + color'] = prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), wait(0.3), stopMove(), write(op('ev3_op_join', tx('Measured: '), v(b('ev3_color', { PORT: '3' }))))]);
-V['detect-color']['write "Colored zone is " + color'] = prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), wait(0.3), stopMove(), write(op('ev3_op_join', tx('Colored zone is '), v(b('ev3_color', { PORT: '3' }))))]);
 V.corridor['✗ no sensor: forward 100 cm, left, forward 72 cm'] = prog([start(), moveFor('forward', 5.68), moveFor('left', 193, 'degrees'), moveFor('forward', 4.09)]);
 V.corridor['✗ turn left at the start, then to the wall'] = prog([start(), moveFor('left', 193, 'degrees'), startDir('forward'), distWait(10), stopMove()]);
 V.corridor['✗ forward 20 cm, turn left, then to the wall'] = prog([start(), moveFor('forward', 1.14), moveFor('left', 193, 'degrees'), startDir('forward'), distWait(10), stopMove()]);
@@ -279,22 +269,18 @@ Object.assign(V['card-lines'], {
 });
 const addColor = (list = 'l_c') => b('ev3_list_add', { LIST: { id: list } }, { ITEM: v(b('ev3_color', { PORT: '3' })) });
 const nextSquare = () => waitTrue(or(colorIs('white'), colorIs('black')));
+const firstThen = (cond) => withVars(vars('first'), blocks([start(), startDir('forward'), waitTrue(not(colorIs('white'))), wait(0.08), setVar('v_first', v(b('ev3_color', { PORT: '3' }))), colorWait('white'), waitTrue(cond), stopMove()]));
+const notFirst = () => not(eq(v(b('ev3_color', { PORT: '3' })), v(varGet('v_first'))));
 Object.assign(V['color-memory'], {
-  'one color per display line': withVars(vars('line').concat(listVars('c')), blocks([start(), setVar('v_line', tx(1)), startDir('forward'),
-    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.08), b('ev3_display_text_line', {}, { TEXT: v(b('ev3_color', { PORT: '3' })), LINE: v(varGet('v_line')) }), changeVar('v_line'), nextSquare()])]),
-    stopMove()])),
-  'join the names in a text variable': withVars(vars('txt'), blocks([start(), setVar('v_txt', tx('')), startDir('forward'),
-    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.08), setVar('v_txt', v(op('ev3_op_join', v(varGet('v_txt')), v(op('ev3_op_join', v(b('ev3_color', { PORT: '3' })), tx(' ')))))), nextSquare()])]),
-    stopMove(), write(varGet('v_txt'))])),
-  'speed 30': withVars(listVars('c'), blocks([start(), speed(30), startDir('forward'),
-    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.12), addColor(), nextSquare()])]), stopMove(), write(b('ev3_list', { LIST: { id: 'l_c' } }))])),
-  'speed 70': withVars(listVars('c'), blocks([start(), speed(70), startDir('forward'),
-    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.05), addColor(), nextSquare()])]), stopMove(), write(b('ev3_list', { LIST: { id: 'l_c' } }))])),
-  '✗ always "red green blue"': prog([start(), startDir('forward'), colorWait('black'), stopMove(), writeText('red green blue')]),
-  '✗ no wait for white (same square added many times)': withVars(listVars('c'), blocks([start(), startDir('forward'),
-    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [addColor()])]), stopMove(), write(b('ev3_list', { LIST: { id: 'l_c' } }))])),
-  '✗ also writes the black end line': withVars(listVars('c'), blocks([start(), startDir('forward'),
-    repeatUntil(colorIs('black'), [ifThen(not(colorIs('white')), [wait(0.08), addColor(), nextSquare()])]), stopMove(), addColor(), write(b('ev3_list', { LIST: { id: 'l_c' } }))])),
+  'compare with "or" instead of "and"': firstThen(not(or(colorIs('white'), eq(v(b('ev3_color', { PORT: '3' })), v(varGet('v_first')))))),
+  'speed 30': withVars(vars('first'), blocks([start(), speed(30), startDir('forward'), waitTrue(not(colorIs('white'))), wait(0.15), setVar('v_first', v(b('ev3_color', { PORT: '3' }))), colorWait('white'),
+    waitTrue(b('ev3_op_and', {}, { A: v(not(colorIs('white'))), B: v(notFirst()) })), stopMove()])),
+  'speed 80': withVars(vars('first'), blocks([start(), speed(80), startDir('forward'), waitTrue(not(colorIs('white'))), wait(0.04), setVar('v_first', v(b('ev3_color', { PORT: '3' }))), colorWait('white'),
+    waitTrue(b('ev3_op_and', {}, { A: v(not(colorIs('white'))), B: v(notFirst()) })), wait(0.05), stopMove()])),
+  '✗ stops on the first square': prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), stopMove()]),
+  '✗ always the 2nd square': prog([start(), startDir('forward'), waitTrue(not(colorIs('white'))), colorWait('white'), waitTrue(not(colorIs('white'))), stopMove()]),
+  '✗ forgets to wait for white after the first square (stops on it)': withVars(vars('first'), blocks([start(), startDir('forward'), waitTrue(not(colorIs('white'))), setVar('v_first', tx('nothing')),
+    waitTrue(b('ev3_op_and', {}, { A: v(not(colorIs('white'))), B: v(notFirst()) })), stopMove()])),
 });
 Object.assign(V['open-gate'], {
   'thresholds: middle, then left, else right': prog([start(), ifElse(distCmp('>', 100), [], [moveFor('left', 80, 'degrees'),
@@ -329,6 +315,8 @@ Object.assign(V['sensor-maze'], {
     ifThen(not(colorIs('green')), [callProc('L')])])]),
 });
 
+// every solution of the teacher's answer key must also be robust
+for (const [id, set] of Object.entries(SOLUTION_SETS)) set.forEach((s) => { (V[id] = V[id] || {})['answer key: ' + s.title] = s.program; });
 
 const out = [];
 const say = (s) => { out.push(s); document.getElementById('out').textContent = out.join('\n'); };

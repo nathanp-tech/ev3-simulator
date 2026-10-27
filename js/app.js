@@ -981,25 +981,37 @@ function closeModal() {
   if (App.solWs) { App.solWs.dispose(); App.solWs = null; }
 }
 
-// Teacher preview: reference solution of the current challenge (sent by the server only with the teacher password).
+// Teacher preview: the solutions of the current challenge, simplest first (sent by the server only with the teacher password).
 async function showSolution() {
   if (!App.preview || !App.challenge) return;
   let d = null;
   try { d = await (await fetch('api/solutions', { cache: 'no-store', headers: { 'X-Teacher-Code': localStorage.getItem('ev3sim.teacherCode') || '' } })).json(); } catch (e) { /* offline */ }
-  const sol = d && d.solutions && d.solutions[App.challenge.id];
-  if (!sol) { toast('No solution available for this challenge.'); return; }
-  openModal(`<h2>🔑 Solution · ${esc(App.challenge.title)}</h2>
-    <p class="muted">Reference solution for the classic robot with the default ports (it scores 100 %). Other programs can be right too.</p>
-    <div id="solWs" style="height:400px;border:1px solid var(--border);border-radius:10px"></div>
-    <div class="actions" style="justify-content:flex-end;margin-top:8px"><button onclick="closeModal()">Close</button><button class="primary" id="solLoad">Load it into my program</button></div>`);
+  let set = d && d.solutions && d.solutions[App.challenge.id];
+  if (set && !Array.isArray(set)) set = [{ title: 'Reference', note: '', program: set }]; // older answer key: one program
+  if (!set || !set.length) { toast('No solution available for this challenge.'); return; }
+  openModal(`<h2>🔑 Solutions · ${esc(App.challenge.title)}</h2>
+    <p class="muted">For the classic robot with the default ports. ${set.length} solutions, from the simplest to the most advanced; other programs can be right too.</p>
+    <div class="sol-tabs">${set.map((s, i) => `<button class="mini${i ? '' : ' primary'}" data-sol="${i}">${i + 1}. ${esc(s.title)}</button>`).join(' ')}</div>
+    <p id="solNote" style="margin:8px 0"></p>
+    <div id="solWs" style="height:380px;border:1px solid var(--border);border-radius:10px"></div>
+    <div class="actions" style="justify-content:flex-end;margin-top:8px"><button onclick="closeModal()">Close</button><button class="primary" id="solLoad">Load this one into my program</button></div>`);
   $('modal').querySelector('.modal-box').style.maxWidth = '1000px';
   App.solWs = Blockly.inject('solWs', { readOnly: true, renderer: 'zelos', theme: EV3_THEME, media: 'lib/blockly/media/', zoom: { controls: true, wheel: true, startScale: 0.75 }, move: { scrollbars: true, drag: true, wheel: true } });
-  Blockly.serialization.workspaces.load(sol, App.solWs);
-  App.solWs.scrollCenter();
+  let cur = 0;
+  const show = (i) => {
+    cur = i;
+    document.querySelectorAll('[data-sol]').forEach((b) => b.classList.toggle('primary', Number(b.dataset.sol) === i));
+    $('solNote').textContent = set[i].note || '';
+    App.solWs.clear();
+    Blockly.serialization.workspaces.load(set[i].program, App.solWs);
+    App.solWs.scrollCenter();
+  };
+  document.querySelectorAll('[data-sol]').forEach((b) => { b.onclick = () => show(Number(b.dataset.sol)); });
+  show(0);
   $('solLoad').onclick = () => {
-    if (!confirm('Replace your current program (in this preview) with the solution?')) return;
+    if (!confirm('Replace your current program (in this preview) with this solution?')) return;
     closeModal();
-    loadProgram(sol);
+    loadProgram(set[cur].program);
     applyConfig(DEFAULT_CONFIG);
     storeWorkspace();
     toast('🔑 Solution loaded: click "Check my solution" to see it pass.');

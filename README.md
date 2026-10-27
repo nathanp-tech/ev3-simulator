@@ -144,15 +144,15 @@ The app can also run on Vercel, with a fixed address (no computer to keep on, no
 | 5 | 📏 Distance | Stop before the wall | ultrasonic |
 | 6 | 📏 Distance | Turn at the wall | ultrasonic twice, turn |
 | 7 | 🎨 Color | Stop on the line | color sensor |
-| 8 | 🎨 Color | Detect the color | color sensor, display |
+| 8 | 🎨 Color | Detect the color | stop on the blue zone among several colors |
 | 9 | 🎨 Color | Line following | color sensor, loops, conditions |
-| 10 | 🎨 Color | Count the lines | variables, display |
+| 10 | 🎨 Color | Count the lines | stop on the 4th line: counting, variables |
 | 11 | 🧠 Combined | Follow the color code | color decides the turn (if / else) |
 | 12 | 🧠 Combined | Line, then wall | color then ultrasonic |
 | 13 | 🧠 Combined | Bump three times | touch + color + loops |
 | 14 | 🧠 Combined | Maze | planning, My Blocks |
 | 15 | 🏆 Expert | Read the card | the card's color gives the line to stop on: variables, counting |
-| 16 | 🏆 Expert | Remember the colors | lists: show the colored squares in order |
+| 16 | 🏆 Expert | Find the odd color | remember the first color, stop on the different square: variables, comparisons |
 | 17 | 🏆 Expert | Find the open gate | ultrasonic in 3 directions, variables, comparisons |
 | 18 | 🏆 Expert | Follow the line to the wall | line following that ends with the ultrasonic sensor |
 | 19 | 🏆 Expert | Sensor maze | corridor turning left or right at random: decisions, My Blocks |

@@ -280,22 +280,24 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'detect-color', needs: 'color', hints: ["Drive until the color sensor no longer sees white, then stop on the colored zone.", "Use the \"3 color\" reporter inside \"write … at line 1\" to show the color name."], title: '8. Detect the color', level: 3, timeLimit: 25, trials: 1, noise: 0.02,
-    skills: 'Color sensor, conditions, display',
-    description: 'Drive to the <b>colored zone</b>, stop on it and <b>write the name of its color</b> on the display, as measured by the <b>color sensor</b>.',
+    cat: 'color', id: 'detect-color', needs: 'color', title: '8. Detect the color', level: 3, timeLimit: 25, trials: 1, noise: 0.02,
+    hints: ['Use "wait until color is blue" (color sensor, port 3), then "stop moving".',
+      'If the robot stops on the edge of the zone, add a short "wait" (0.2 s) before "stop moving": it rolls a little further onto the blue.'],
+    skills: 'Color sensor',
+    description: 'Several <b>colored zones</b> are on the way. Drive over them and stop with your <b>color sensor on the blue zone</b>.',
     setup() {
-      const color = 'blue', px = 90;
+      const zones = [['red', 60], ['green', 95], ['blue', 130], ['yellow', 165]];
       return {
-        mat: { w: 180, h: 60, draw(ctx) { drawGrid(ctx, 180, 60); ctx.fillStyle = PAL[color]; ctx.fillRect(px, 10, 30, 40); } },
-        start: { x: 20, y: 30, th: 0 }, data: { color, px },
+        mat: { w: 220, h: 60, draw(ctx) { drawGrid(ctx, 220, 60); zones.forEach(([c, x]) => { ctx.fillStyle = PAL[c]; ctx.fillRect(x, 10, 20, 40); }); } },
+        start: { x: 20, y: 30, th: 0 }, data: { color: 'blue', bx: 130 },
       };
     },
     evaluate(ctx) {
-      const s = ctx.screen.toLowerCase();
-      const shown = ['red', 'green', 'blue', 'yellow', 'black', 'white', 'brown'].filter((n) => new RegExp(`\\b${n}\\b`).test(s));
+      const on = anyColorSees(ctx, 'blue') || anyColorOverX(ctx, ctx.data.bx - 1, ctx.data.bx + 21);
       return [
-        crit(`The display shows the right color (${ctx.data.color})`, shown.length === 1 && shown[0] === ctx.data.color, 60),
-        crit('The robot stops on the colored zone', anyColorSees(ctx, ctx.data.color) && isStopped(ctx), 40),
+        crit('The color sensor is on the blue zone', on, 60),
+        crit('The robot is not moving at the end', on && isStopped(ctx), 20),
+        crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 20),
       ];
     },
   },
@@ -327,23 +329,24 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'color', id: 'count-lines', needs: 'color', hints: ["Make a variable, set it to 0, and add 1 each time the color sensor sees black.", "After counting a line, wait until the sensor sees white again, otherwise you count the same line many times. Repeat until the color is red, then write the variable on the display."], title: '10. Count the lines', level: 4, timeLimit: 40, trials: 1, noise: 0.02,
-    skills: 'Variables, color sensor, display',
-    description: 'Drive to the <b>red zone</b> counting the black lines you cross with the <b>color sensor</b>, stop in the red zone, then <b>show the number of lines</b> on the brick display (only that number, counted by your program).',
+    cat: 'color', id: 'count-lines', needs: 'color', title: '10. Count the lines', level: 4, timeLimit: 40, trials: 1, noise: 0.02,
+    hints: ['Make a variable "lines", set it to 0, and add 1 each time the color sensor sees black. After each line, wait until the sensor sees white again, otherwise the same line is counted many times.',
+      '"repeat until lines = 4", then "stop moving". Stop as soon as the sensor sees the 4th line.'],
+    skills: 'Variables, color sensor, loops',
+    description: 'Count the black lines with the <b>color sensor</b> and stop with the sensor <b>on the 4th line</b>.',
     setup() {
-      const xs = [68, 97, 131, 158, 192], n = xs.length;
+      const xs = [68, 97, 131, 158, 192];
       return {
-        mat: { w: 270, h: 70, draw(ctx) { drawGrid(ctx, 270, 70); xs.forEach((x) => { ctx.fillStyle = PAL.black; ctx.fillRect(x, 0, 2.5, 70); }); ctx.fillStyle = PAL.red; ctx.fillRect(225, 0, 45, 70); } },
-        start: { x: 20, y: 35, th: 0 }, data: { n, zone: { x: 214, y: 0, w: 56, h: 70 } },
+        mat: { w: 240, h: 70, draw(ctx) { drawGrid(ctx, 240, 70); xs.forEach((x) => { ctx.fillStyle = PAL.black; ctx.fillRect(x, 0, 2.5, 70); }); } },
+        start: { x: 20, y: 35, th: 0 }, data: { xs, target: 4 },
       };
     },
+    overlay(c, d) { zoneOverlay({ x: d.xs[d.target - 1] - 3, y: 0, w: 8.5, h: 70 }, '#00a651', '4th')(c); },
     evaluate(ctx) {
-      const nums = (ctx.screen.match(/-?\d+(?:[.,]\d+)?/g) || []).map(Number);
-      const distinct = [...new Set(nums)];
-      const { x, y } = ctx.sim.robot;
+      const lx = ctx.data.xs[ctx.data.target - 1], on = anyColorOverX(ctx, lx - 1, lx + 3.5);
       return [
-        crit(`The display shows the right number of lines (${ctx.data.n})`, distinct.length === 1 && distinct[0] === ctx.data.n, 50),
-        crit('The robot stops in the red zone', inRect(x, y, ctx.data.zone) && isStopped(ctx), 30),
+        crit('The color sensor is on the 4th line', on, 60),
+        crit('The robot is not moving at the end', on && isStopped(ctx), 20),
         crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 20),
       ];
     },
@@ -482,38 +485,29 @@ const CHALLENGES = [
     },
   },
   {
-    cat: 'expert', id: 'color-memory', checkSeeds: [7, 2, 11], title: '16. Remember the colors', level: 5, timeLimit: 40, trials: 3, noise: 0.01,
-    skills: 'Lists, loops, color sensor, display',
-    hints: ['Make a list. Each time the color sensor arrives on a colored square, "add (color) to the list", then wait until it sees white again.',
-      'Repeat until the color is black (the end line), stop, then write the list on the display: the list reporter shows all its items separated by spaces.'],
-    description: 'Drive along the track over the <b>colored squares</b> (3 to 5 of them, they change in each trial), stop on the <b>black end line</b>, then <b>write all the colors in order</b> on the display, e.g. "green red blue".',
+    cat: 'expert', id: 'color-memory', checkSeeds: [18, 5, 16], title: '16. Find the odd color', level: 5, timeLimit: 40, trials: 3, noise: 0.01,
+    skills: 'Variables, conditions, comparisons, color sensor',
+    hints: ['When the color sensor arrives on the first square, keep its color in a variable ("set first to (3 color)"), then wait until the sensor sees white again.',
+      'Then repeat until the color is not white and not your variable (use "not" and "="), and stop: you are on the odd square.'],
+    description: 'All the colored squares have the <b>same color except one</b>. Stop with your color sensor <b>on the odd one</b>. The colors and the place of the odd square change at each Run.',
     setup(rng) {
       const colors = ['red', 'green', 'blue', 'yellow'];
-      const n = 3 + Math.floor(rng() * 3), seq = [], xs = [];
-      let x = 30;
-      for (let i = 0; i < n; i++) { x += 12 + Math.round(rng() * 10); xs.push(x); seq.push(colors[Math.floor(rng() * 4)]); x += 12; }
+      const n = 4 + Math.floor(rng() * 3), base = colors[Math.floor(rng() * 4)];
+      const others = colors.filter((c) => c !== base), odd = others[Math.floor(rng() * 3)], at = 1 + Math.floor(rng() * (n - 1));
+      const xs = [];
+      let x = 32;
+      for (let i = 0; i < n; i++) { x += 12 + Math.round(rng() * 10); xs.push(x); x += 12; }
       return {
-        mat: {
-          w: 270, h: 70,
-          draw(ctx) {
-            drawGrid(ctx, 270, 70);
-            xs.forEach((sx, i) => { ctx.fillStyle = PAL[seq[i]]; ctx.fillRect(sx, 20, 12, 30); });
-            ctx.fillStyle = PAL.black; ctx.fillRect(235, 0, 4, 70);
-          },
-        },
-        start: { x: 15, y: 35, th: 0 }, data: { seq, xs },
+        mat: { w: 270, h: 70, draw(ctx) { drawGrid(ctx, 270, 70); xs.forEach((sx, i) => { ctx.fillStyle = PAL[i === at ? odd : base]; ctx.fillRect(sx, 20, 12, 30); }); } },
+        start: { x: 15, y: 35, th: 0 }, data: { base, odd, at, ox: xs[at], n },
       };
     },
     evaluate(ctx) {
-      // what the screen shows, top to bottom (each line or x/y text in its place)
-      const texts = ctx.brick.lcd.texts.slice().sort((a, b) => a.y - b.y || (a.x || 0) - (b.x || 0)).map((t) => t.text).join(' ').toLowerCase();
-      const shown = texts.match(/\b(red|green|blue|yellow|black|white|brown)\b/g) || [];
-      const want = ctx.data.seq;
-      const atEnd = anyColorSees(ctx, 'black') || anyColorOverX(ctx, 234, 240);
+      const d = ctx.data, on = anyColorOverX(ctx, d.ox - 1, d.ox + 13);
       return [
-        crit(`The display shows the colors in order (${want.join(' ')})`, shown.join(' ') === want.join(' '), 60),
-        crit('Stops on the black end line', atEnd && isStopped(ctx), 25),
-        crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 15),
+        crit(`The color sensor is on the odd square (${d.odd} among ${d.base})`, on, 60),
+        crit('The robot is not moving at the end', on && isStopped(ctx), 20),
+        crit('No collision', moved(ctx) && ctx.sim.collisions === 0, 20),
       ];
     },
   },

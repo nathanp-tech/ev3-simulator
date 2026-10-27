@@ -102,6 +102,13 @@ async function main() {
       check(false, `${ch.title}: exception ${e.message}\n${e.stack}`);
     }
   }
+  // Every solution of the teacher's answer key passes the check
+  for (const ch of CHALLENGES) {
+    const set = SOLUTION_SETS[ch.id] || [];
+    const res = [];
+    for (const s of set) res.push((await evaluateProgram(ch, programFromSerialized(s.program), { sim, brick, config: DEFAULT_CONFIG })).score);
+    check(set.length >= 2 && res.every((x) => x >= CLASSROOM.passScore), `${ch.title}: ${set.length} solutions in the answer key, scores ${res.join(' / ')} (${set.map((s) => s.title).join(' · ')})`);
+  }
   // Categories, no gyro, variants that really change
   {
     check(CHALLENGES.every((c) => CATEGORIES.some((k) => k.id === c.cat)), `every challenge has a category: ${CHALLENGES.map((c) => c.cat).join(', ')}`);
@@ -122,7 +129,7 @@ async function main() {
     try {
       const r = await fetch('../api/solutions', { cache: 'no-store' });
       const pub = r.ok ? await r.json() : null;
-      check(pub && JSON.stringify(pub.solutions) === JSON.stringify(SOLUTIONS), pub ? 'published answer key is up to date (api/_solutions.json)' : 'published answer key: not reachable (run the test through server.py)');
+      check(pub && JSON.stringify(pub.solutions) === JSON.stringify(SOLUTION_SETS), pub ? 'published answer key is up to date (api/_solutions.json)' : 'published answer key: not reachable (run the test through server.py)');
     } catch (e) { check(false, 'published answer key: ' + e.message); }
   }
   // An empty program scores nothing
