@@ -58,7 +58,6 @@ function rowHtml(s, i, stats, source) {
     <td>${nb(fll ? s.fll && s.fll.runs : free ? s.free && s.free.runs : cur && cur.runs) || 0}</td>
     <td>${fll ? (fllBest !== null ? fllBest + ' pts' : '—') : !free && cur && nb(cur.bestScore) !== null ? nb(cur.bestScore) + ' %' : '—'}</td>
     <td class="st ${status.cls}">${status.text}</td>
-    <td class="lvl ${a.level}" title="${esc(a.summary.join(' '))}">${LEVEL_LABEL[a.level]}</td>
     <td style="white-space:nowrap">${canValidate ? `<button class="mini" data-validate="${i}" title="Mark this challenge as passed and unlock the next one">Unlock next</button> ` : ''}${source === 'live' ? `<button class="mini primary" data-watch="${i}" title="See their blocks live and run their program">👁 View</button> <button class="mini" data-reset="${i}" title="Clear this student: everything is deleted, they are logged out and start again">↺</button> ` : ''}<button class="mini" data-details="${i}" data-src="${source}">Details</button></td>
   </tr>`;
 }
@@ -163,11 +162,11 @@ function renderLive() {
     const on = rows.filter((r) => r.i >= 0 && isOnline(r.s)).length;
     online += on; total += rows.length;
     help += rows.filter((r) => r.i >= 0 && analyzeStudent(r.s, stats).level === 'help').length;
-    html += `${gi ? '<tr class="grp-gap"><td colspan="10"></td></tr>' : ''}<tr class="grp"><td colspan="10"><div class="grp-row">🏫 ${esc(classLabel(c))} <span class="grp-count${on ? ' on' : ''}">${on} / ${rows.length} connected</span>${c ? classCtlHtml(c) : ''}</div></td></tr>`;
+    html += `${gi ? '<tr class="grp-gap"><td colspan="9"></td></tr>' : ''}<tr class="grp"><td colspan="9"><div class="grp-row">🏫 ${esc(classLabel(c))} <span class="grp-count${on ? ' on' : ''}">${on} / ${rows.length} connected</span>${c ? classCtlHtml(c) : ''}</div></td></tr>`;
     html += rows.map((r) => (r.i >= 0 ? rowHtml(r.s, r.i, stats, 'live')
-      : `<tr class="absent"><td><span class="pres never" title="Never connected"></span><b>${esc(r.s.name)}</b></td><td colspan="6"></td><td class="st off">○ Not connected yet</td><td></td><td></td></tr>`)).join('');
+      : `<tr class="absent"><td><span class="pres never" title="Never connected"></span><b>${esc(r.s.name)}</b></td><td colspan="6"></td><td class="st off">○ Not connected yet</td><td></td></tr>`)).join('');
   });
-  $('liveRows').innerHTML = html || '<tr><td colspan="10" class="muted">No student in this class.</td></tr>';
+  $('liveRows').innerHTML = html || '<tr><td colspan="9" class="muted">No student in this class.</td></tr>';
   $('classKpis').innerHTML = `<span class="kpi"><b>${online} / ${total}</b>connected</span><span class="kpi"><b>${help}</b>need help</span>`;
 }
 
@@ -238,7 +237,7 @@ async function addFiles(list) {
 function renderFiles() {
   const stats = classStats(T.files);
   T.files.sort(byClassThenName);
-  $('fileRows').innerHTML = groupedHtml(T.files.map((s, i) => ({ s, html: rowHtml(s, i, stats, 'files') })), 10) || '<tr><td colspan="10" class="muted">No files yet.</td></tr>';
+  $('fileRows').innerHTML = groupedHtml(T.files.map((s, i) => ({ s, html: rowHtml(s, i, stats, 'files') })), 9) || '<tr><td colspan="9" class="muted">No files yet.</td></tr>';
   $('filesCount').textContent = T.files.length ? `${T.files.length} student${T.files.length > 1 ? 's' : ''}` : '';
 }
 
