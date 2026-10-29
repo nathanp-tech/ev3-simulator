@@ -509,6 +509,12 @@ class Api:
             ctl = hash_dict(self.r(['HGETALL', P + 'classctl'])[0])
             return 200, {'classes': {c: {'closed': bool(v.get('closed')), 'paused': bool(v.get('paused')), 'exam': bool((v.get('exam') or {}).get('active'))}
                                      for c, v in ctl.items() if v and (g == '*' or c == g)}, 'now': time.time()}
+        if path == '/api/help/queue':
+            # The help queue of one class, in order (the student who asks sees where they are; ids are not shown).
+            sid, cls = str(params.get('studentId', '')), str(params.get('className', '') if g == '*' else g)
+            reqs = sorted((h for h in hash_dict(self.r(['HGETALL', P + 'help'])[0]).values() if h and (h.get('className') or '') == cls),
+                          key=lambda h: h.get('since', 0))
+            return 200, {'queue': [{'name': h.get('name'), 'me': h.get('studentId') == sid, 'since': h.get('since')} for h in reqs], 'now': time.time()}
         if path == '/api/names' and g != '*':
             return 403, {'error': 'teacher code required'}
         if path == '/api/work/find' or path == '/api/names':

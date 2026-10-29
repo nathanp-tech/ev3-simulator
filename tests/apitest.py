@@ -78,6 +78,7 @@ check('program' not in json.dumps([x for x in r['students'] if x['studentId'] ==
 
 # 1. help
 s, r = call('POST', '/api/help', {'studentId': A, 'on': True, 'name': 'Adriana', 'className': '4E', 'where': 'Challenge 3'}); check(s == 200, 'help request')
+s, r = call('GET', '/api/help/queue?studentId=' + A + '&className=4E'); check(s == 200 and any(q.get('me') and q.get('name') == 'Adriana' for q in r.get('queue', [])) and all('studentId' not in q for q in r['queue']), 'the student sees the help waiting list (no ids)', r)
 s, r = call('GET', '/api/progress', teacher=True); check(any(h['studentId'] == A for h in r['help']), 'help request in the queue')
 s, r = call('POST', '/api/help', {'studentId': A, 'on': False, 'by': 'teacher'}, teacher=True); check(s == 200, 'teacher marks help done')
 s, r = call('GET', '/api/student/' + A + '?className=4E'); check(r.get('helpDone', 0) > 0, 'student sees help done', r)

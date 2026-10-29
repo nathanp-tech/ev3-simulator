@@ -34,14 +34,45 @@ const currentSlotId = () => (App.exam ? `${App.exam.id}-${App.examCh}` : App.mod
 function renderHelpButton() {
   const b = $('btnHelpMe');
   b.classList.toggle('waiting', !!CR.helpSince);
-  b.textContent = CR.helpSince ? '🙋 Help requested · cancel' : '🙋 I need help';
-  b.title = CR.helpSince ? 'Your teacher has your request. Click to cancel it.' : 'Ask your teacher for help';
+  b.textContent = CR.helpSince ? (CR.helpPos ? `🙋 Help: you are n° ${CR.helpPos} · cancel` : '🙋 Help requested · cancel') : '🙋 I need help';
+  b.title = CR.helpSince ? `Your teacher has your request${CR.helpQueue && CR.helpQueue.length ? ' (waiting list: ' + CR.helpQueue.map((h) => h.name).join(', ') + ')' : ''}. Click to cancel it.` : 'Ask your teacher for help';
+  renderHelpQueue();
+}
+// The waiting list of the class (who asked for help, in order), shown to a student who is waiting.
+function renderHelpQueue() {
+  const box = $('helpQueue');
+  const q = CR.helpQueue || [];
+  // shown for a few seconds when the student asks and each time their place changes (or on hovering the button)
+  box.hidden = !CR.helpSince || !q.length || App.preview || Date.now() > (CR.helpShowUntil || 0);
+  if (box.hidden) return;
+  const ago = (t) => { const m = Math.max(0, Math.round((CR.helpNow - t) / 60)); return m < 1 ? 'just now' : m + ' min'; };
+  // under the header, at the right of the program area: never over Run / Stop or the simulator
+  const r = $('btnHelpMe').getBoundingClientRect(), run = $('btnRun').getBoundingClientRect();
+  box.style.top = Math.round(r.bottom + 6) + 'px';
+  box.style.left = Math.round(Math.max(8, (run.left || window.innerWidth) - 336)) + 'px';
+  box.innerHTML = `<h4>🙋 Waiting list for help</h4><ol>${q.map((h) => `<li class="${h.me ? 'me' : ''}">${esc(h.name || '?')}${h.me ? ' (you)' : ''} <span class="muted" style="display:inline">· ${ago(h.since)}</span></li>`).join('')}</ol>
+    <span class="muted">Your teacher comes in this order. Keep trying while you wait!</span>`;
+}
+async function pollHelpQueue() {
+  if (!CR.helpSince || !Progress.data || !Sync.online || Sync.disabled) return;
+  const d = await Sync.getJson(`api/help/queue?studentId=${encodeURIComponent(Progress.data.studentId)}&className=${encodeURIComponent(Progress.data.className || '')}`);
+  if (!d || !CR.helpSince) return;
+  const before = JSON.stringify((CR.helpQueue || []).map((h) => h.name));
+  CR.helpQueue = d.queue || [];
+  CR.helpNow = d.now || Date.now() / 1000;
+  if (JSON.stringify(CR.helpQueue.map((h) => h.name)) !== before) CR.helpShowUntil = Date.now() + 8000;
+  const k = CR.helpQueue.findIndex((h) => h.me);
+  // no longer in the list: the teacher has handled the request
+  if (k < 0 && CR.helpNow - CR.helpSince > 8) { CR.helpSince = 0; CR.helpPos = 0; renderHelpButton(); toast('👩‍🏫 Your teacher has seen your request.'); return; }
+  CR.helpPos = k + 1;
+  renderHelpButton();
 }
 async function toggleHelp() {
   if (!Progress.data) return;
   if (!Sync.online) { toast('Not connected to the class server: raise your hand 🙂'); return; }
   if (CR.helpSince) {
     CR.helpSince = 0;
+    CR.helpPos = 0;
     renderHelpButton();
     await Sync.post('api/help', { studentId: Progress.data.studentId, on: false });
     return;
@@ -49,13 +80,17 @@ async function toggleHelp() {
   const r = await Sync.post('api/help', { studentId: Progress.data.studentId, on: true, name: Progress.data.name, className: Progress.data.className, where: whereText() });
   if (!r) { toast('Could not reach your teacher: raise your hand 🙂'); return; }
   CR.helpSince = r.since;
+  CR.helpPos = 0;
+  CR.helpQueue = [];
   Progress.log('help', App.mode === 'challenge' && App.challenge ? App.challenge.id : null);
   renderHelpButton();
+  pollHelpQueue();
   toast('🙋 Your teacher got your request. Keep trying while you wait!');
 }
 Sync.onHelpDone = (t) => {
   if (CR.helpSince && t >= CR.helpSince - 1) {
     CR.helpSince = 0;
+    CR.helpPos = 0;
     renderHelpButton();
     toast('👩‍🏫 Your teacher has seen your request.');
   }
@@ -295,5 +330,9 @@ function setupClassroom() {
   $('closedExit').onclick = () => { $('closedOverlay').hidden = true; exitSession(); };
   setInterval(() => { if (App.exam) updateExamBanner(); }, 1000);
   setInterval(flushExamResults, 4000);
+  setInterval(pollHelpQueue, (CLASSROOM.syncPollSeconds || 3) * 1000 + 2000); // only while waiting for help
+  setInterval(() => { if (CR.helpSince) renderHelpQueue(); }, 1000);
+  $('btnHelpMe').addEventListener('mouseenter', () => { if (CR.helpSince) { CR.helpShowUntil = Date.now() + 4000; renderHelpQueue(); } });
+  $('helpQueue').onclick = () => { CR.helpShowUntil = 0; renderHelpQueue(); };
   renderHelpButton();
 }

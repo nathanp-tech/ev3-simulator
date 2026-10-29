@@ -417,6 +417,12 @@ table.cls tr.grp td { font-size: 15px; }
 /* Help request, exam banner, teacher comments, overlays */
 .help-me { font-weight: 700; border-color: #f0c36d; background: #fff8e6; }
 .help-me:hover { background: #ffefc2; }
+.help-queue { position: fixed; top: 52px; z-index: 900; cursor: pointer; background: #fff; border: 2px solid #f0a020; border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); padding: 8px 12px; min-width: 220px; max-width: 320px; font-size: 13px; }
+.help-queue h4 { margin: 0 0 6px; font-size: 13px; color: #b36b00; }
+.help-queue ol { margin: 0; padding-left: 22px; max-height: 220px; overflow: auto; }
+.help-queue li { padding: 1px 0; }
+.help-queue li.me { font-weight: 800; color: #b36b00; }
+.help-queue .muted { display: block; margin-top: 6px; font-size: 11.5px; }
 .help-me.waiting { background: #f0a020; border-color: #f0a020; color: #fff; animation: helpPulse 1.6s ease-in-out infinite; }
 @keyframes helpPulse { 50% { box-shadow: 0 0 0 5px rgba(240, 160, 32, 0.25); } }
 .exam-banner { background: #5b3cc4; color: #fff; padding: 8px 12px; font-size: 15px; text-align: center; }
