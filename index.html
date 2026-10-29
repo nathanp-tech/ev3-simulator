@@ -47,13 +47,14 @@
           <option value="1">×1</option><option value="2">×2</option><option value="4">×4</option><option value="max">Turbo</option>
         </select>
         <label class="chk"><input type="checkbox" id="chkTrail" checked> Trail</label>
+        <label class="chk" title="Show the values of your variables on the simulator"><input type="checkbox" id="chkVars"> Variables</label>
         <button id="btnPortView2" title="Show the Port View">🔌 Port View</button>
         <button id="btn3d" title="See the field in 3D">🧊 3D</button>
         <button id="btnBig" title="Bigger simulator">⛶</button>
         <span id="simClock" class="clock">0.0 s</span>
       </div>
 
-      <div id="simWrap"><canvas id="simCanvas"></canvas><div id="simError" class="sim-error" hidden></div></div>
+      <div id="simWrap"><canvas id="simCanvas"></canvas><div id="simVars" class="sim-vars" hidden></div><div id="simError" class="sim-error" hidden></div></div>
 
       <div id="sandboxBar" class="bar">
         <label>Mat <select id="matSel"></select></label>

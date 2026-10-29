@@ -1101,6 +1101,13 @@ function updatePanels() {
   const rows = variables.map((n) => `<div class="var"><b>${esc(n)}</b><span>${esc(r.str(r.V[n] !== undefined ? r.V[n] : 0))}</span></div>`)
     .concat(lists.map((n) => `<div class="var list"><b>${esc(n)}</b><span>[${esc((r.L[n] || []).map((x) => r.str(x)).join(', '))}]</span></div>`));
   setText('varList', rows.length ? rows.join('') : '<span class="muted">No variables</span>', true);
+  // the same values as monitors on the simulator, when "Variables" is ticked
+  const mon = $('simVars');
+  mon.hidden = !App.showVars || App.view3d || !(variables.length + lists.length);
+  if (!mon.hidden) {
+    setText('simVars', variables.map((n) => `<div class="mon"><b>${esc(n)}</b><span>${esc(r.str(r.V[n] !== undefined ? r.V[n] : 0))}</span></div>`)
+      .concat(lists.map((n) => `<div class="mon list"><b>${esc(n)}</b><span>[${esc((r.L[n] || []).map((x) => r.str(x)).join(', '))}]</span></div>`)).join(''), true);
+  }
 }
 
 function updateHighlights() {
@@ -1401,6 +1408,9 @@ function init() {
   $('btnReset').onclick = resetPosition;
   $('speedSel').onchange = (e) => { App.speed = e.target.value === 'max' ? 'max' : Number(e.target.value); brick.sound.muted = App.speed === 'max'; };
   $('chkTrail').onchange = (e) => { App.trail = e.target.checked; };
+  App.showVars = !!LS.get(STORAGE + 'showVars', false);
+  $('chkVars').checked = App.showVars;
+  $('chkVars').onchange = (e) => { App.showVars = e.target.checked; LS.set(STORAGE + 'showVars', App.showVars); };
   $('matSel').onchange = (e) => loadSandboxMat(e.target.value);
   $('btnAddBox').onclick = () => {
     if (!canEditScene()) return;
